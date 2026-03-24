@@ -16,10 +16,17 @@
 cmake_minimum_required(VERSION 3.14)
 project(livekit_ros2_bridge)
 
-# Find dependencies
-find_package(ament_cmake REQUIRED)
-find_package(ament_cmake_python REQUIRED)
-find_package(generate_parameter_library REQUIRED)
+if(NOT CMAKE_CXX_STANDARD)
+  set(CMAKE_CXX_STANDARD 17)
+endif()
+
+if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  add_compile_options(-Wall -Wextra -Wpedantic -Werror=switch)
+  add_link_options("-Wl,--no-undefined")
+endif()
+
+find_package(ament_cmake_auto REQUIRED)
+ament_auto_find_build_dependencies()
 
 generate_parameter_module(parameters
   livekit_ros2_bridge/parameters.yaml
@@ -31,12 +38,28 @@ ament_python_install_package(${PROJECT_NAME}
   SCRIPTS_DESTINATION lib/${PROJECT_NAME}
 )
 
-install(DIRECTORY config
-  DESTINATION share/${PROJECT_NAME}
+add_library(${PROJECT_NAME} SHARED
+  src/node.cpp
+)
+target_include_directories(${PROJECT_NAME} PUBLIC include)
+target_link_libraries(${PROJECT_NAME} PUBLIC
+  rclcpp::rclcpp
+  rclcpp_components::component
+)
+rclcpp_components_register_node(${PROJECT_NAME}
+  PLUGIN "livekit_ros2_bridge::Node"
+  EXECUTABLE ${PROJECT_NAME}_node
 )
 
+install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
+install(DIRECTORY include/ DESTINATION include/${PROJECT_NAME})
+install(TARGETS ${PROJECT_NAME})
+
 if(BUILD_TESTING)
-  find_package(ament_cmake_pytest REQUIRED)
+  ament_auto_find_test_dependencies()
+
+  ament_add_gtest(test_cpp_smoke test/cpp/test_cpp_smoke.cpp)
+  target_link_libraries(test_cpp_smoke ${PROJECT_NAME})
   ament_add_pytest_test(pytest ${CMAKE_CURRENT_SOURCE_DIR}/test)
 endif()
 
