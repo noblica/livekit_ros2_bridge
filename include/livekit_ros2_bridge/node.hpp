@@ -16,13 +16,12 @@
 
 #include <memory>
 
-#include "livekit/room.h"
-#include "livekit_ros2_bridge/livekit_ros2_bridge_parameters.hpp"
 #include "rclcpp/node.hpp"
 #include "rclcpp/node_options.hpp"
 
 namespace livekit_ros2_bridge
 {
+class Runtime;
 
 class Node final : public rclcpp::Node
 {
@@ -31,9 +30,7 @@ public:
   ~Node() override;
 
 private:
-  std::shared_ptr<ParamListener> param_listener_;
-  Params params_;
-  std::unique_ptr<livekit::Room> room_;
+  std::unique_ptr<Runtime> runtime_;
 };
 
 }  // namespace livekit_ros2_bridge

@@ -2,27 +2,38 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>livekit_ros2_bridge</name>
-  <version>0.0.1</version>
+  <version>0.1.0</version>
   <description>Generic bridge for connecting ROS2 pub/sub into LiveKit.</description>
   <maintainer email="engineering@polymathrobotics.com">Polymath Robotics</maintainer>
   <license>Apache License 2.0</license>
   <author email="engineering@polymathrobotics.com">Polymath Robotics</author>
 
   <buildtool_depend>ament_cmake_auto</buildtool_depend>
-  <buildtool_depend>ament_cmake_python</buildtool_depend>
-  <build_depend>generate_parameter_library</build_depend>
 
-  <depend>rclcpp</depend>
+  <depend>generate_parameter_library</depend>
+  <depend>libssl-dev</depend>
+  <depend>nlohmann-json-dev</depend>
   <depend>rclcpp_components</depend>
-  <exec_depend>generate_parameter_library_py</exec_depend>
-  <exec_depend>rclpy</exec_depend>
-  <exec_depend>geometry_msgs</exec_depend>
-  <exec_depend>sensor_msgs</exec_depend>
-  <exec_depend>rosidl_runtime_py</exec_depend>
-  <exec_depend>python3-pydantic</exec_depend>
+  <depend>ament_index_cpp</depend>
+  <depend>rclcpp</depend>
+  <depend>rmw</depend>
+  <depend>rosidl_typesupport_introspection_cpp</depend>
+  <depend>sensor_msgs</depend>
+
+  <build_depend>libgstreamer-plugins-base1.0-dev</build_depend>
+  <build_depend>libgstreamer1.0-dev</build_depend>
+  <!-- CMake uses PkgConfig to resolve the GStreamer development packages. -->
+  <build_depend>pkg-config</build_depend>
+
+  <!-- LiveKit and optional configured video sources may need the system CA bundle for TLS. -->
+  <exec_depend>ca-certificates</exec_depend>
+  <exec_depend>gstreamer1.0-plugins-base</exec_depend>
+  <exec_depend>gstreamer1.0-plugins-good</exec_depend>
+
   <test_depend>ament_cmake_gtest</test_depend>
-  <test_depend>ament_cmake_pytest</test_depend>
-  <test_depend>python3-pytest</test_depend>
+  <test_depend>std_msgs</test_depend>
+  <test_depend>std_srvs</test_depend>
+  <test_depend>test_msgs</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

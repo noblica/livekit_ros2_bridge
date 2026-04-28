@@ -1,126 +1,117 @@
-# LiveKit ROS2 Bridge
+# livekit_ros2_bridge
 
-`livekit_ros2_bridge` connects a LiveKit room to ROS 2 topics and services.
-It uses JSON messages over LiveKit for control and topic data.
-Each bridge instance connects to one LiveKit room.
+`livekit_ros2_bridge` is a ROS 2 package that joins a LiveKit room as a ROS-aware participant. It gives LiveKit clients a way to request topic or video subscriptions, fetch interface definitions, call ROS services, and publish small ROS topic messages.
 
-How the bridge communicates over LiveKit:
+The core mental model is:
 
-- 1 inbound data topic (`ros.topic.publish`)
-- 1 outbound data topic (`ros.topic.messages`)
-- 3 control RPCs (`ros.topic.subscribe`, `ros.topic.unsubscribe`, `ros.service.call`)
+- clients join the same LiveKit room as the bridge
+- clients send a heartbeat that says "this is the full set of subscriptions I still want"
+  - the bridge streams the requested subscriptions over LiveKit data and video tracks
+  - the bridge stops a track if the heartbeats stop or if a subscription is dropped in later heartbeats
+- the bridge responds to heartbeats with a status update that clients use to correlate a subscription with a data or video track.
+- access control is done with global allow and deny lists by topic
+- discovery and request-response work happen over RPC
 
-| Plane | Initiator | LiveKit interface | Bridge action | Result |
-| --- | --- | --- | --- | --- |
-| Data in | LiveKit | Topic: `ros.topic.publish` | Publish a ROS topic message | ROS topic receives message |
-| Control | LiveKit | RPC: `ros.topic.subscribe` | Create a ROS subscription | ROS topic messages start on `ros.topic.messages` |
-| Control | LiveKit | RPC: `ros.topic.unsubscribe` | Remove a ROS subscription | ROS topic messages stop on `ros.topic.messages` |
-| Control | LiveKit | RPC: `ros.service.call` | Call a ROS service | RPC returns service response |
-| Data out | Bridge | Topic: `ros.topic.messages` | Send subscribed ROS topic messages | LiveKit receives ROS topic message stream |
+## What it exposes
 
-## Quick start
+The bridge uses three kinds of LiveKit surfaces:
 
-### 1) Requirements
+- RPCs for request-response flows such as listing resources, fetching interface definitions, and calling services
+- data-packet topics for ROS publish requests and subscription control-plane messages
+- tracks for ongoing delivery of ROS topic data or video
 
-- ROS 2 (tested in CI: Humble, Jazzy, Kilted, Rolling)
-- A LiveKit deployment (LiveKit Cloud or self-hosted)
+| Surface | Name | Role | Purpose |
+| --- | --- | --- | --- |
+| Data-Packet Topic | `ros2.topic.pub` | ROS Publish Request | Best-effort ROS topic publication |
+| Data-Packet Topic | `lkros.heartbeat` | Control-Plane Request | Request and renew topic or video subscriptions |
+| Data-Packet Topic | `lkros.status` | Control-Plane Status | The named LiveKit tracks of what the bridge actually made available after a heartbeat |
+| RPC | `ros2.service.call` | Request-Response | Call an authorized ROS service |
+| RPC | `ros2.service.list` | Request-Response | List authorized ROS services |
+| RPC | `ros2.topic.list` | Request-Response | List authorized ROS topics |
+| RPC | `ros2.interface.show` | Request-Response | Fetch ROS interface definitions |
 
-### 2) Install from source
+The bridge has two delivery modes:
 
-In a ROS 2 workspace:
+- non-video ROS topics are delivered as raw CDR bytes on a LiveKit data track
+- ROS image topics(`sensor_msgs/msg/Image` and `sensor_msgs/msg/CompressedImage`) and other video targets are delivered as LiveKit video tracks
 
-```bash
-cd ~/ros2_ws/src
-git clone https://github.com/polymathrobotics/livekit_ros2_bridge.git
-cd ~/ros2_ws
-rosdep install -r --from-paths src -i -y
-colcon build --packages-select livekit_ros2_bridge
-```
+The `ros2.*` names mirror the corresponding ROS 2 CLI commands, but request and response bodies
+still use the bridge's JSON/CDR protocol rather than CLI text, flags, or YAML.
 
-Install the LiveKit Python SDK in the same environment where the node will run:
+This means your client needs different expectations for each:
 
-```bash
-python3 -m pip install livekit==1.0.23 livekit-api==1.1.0 livekit-protocol==1.1.2
-```
+- data-track subscriptions need interface definitions from `ros2.interface.show`
+- video subscriptions depend on `video_topic_ids`, `video_other_ids`, and the matching `video.topics.*` / `video.other.*` configuration
 
-### 3) Create a params file
+The full contract lives in [docs/protocol.md](./docs/protocol.md).
 
-```bash
-cp "$(ros2 pkg prefix --share livekit_ros2_bridge)/config/livekit_bridge.params.yaml" \
-  /path/to/livekit_bridge.params.yaml
-```
+## Before you start
 
-Edit `/path/to/livekit_bridge.params.yaml` and set at least:
+You need:
 
-```yaml
-livekit_bridge:
-  ros__parameters:
-    livekit.url: "wss://your-livekit.example"
-    livekit.room: "robot-room"
-    access.static.subscribe.allow: ["/user/*"]
-```
+- a ROS 2 workspace where you can build and source this package
+- a reachable LiveKit deployment
+- a pre-minted startup token provided via `livekit.token` or `LIVEKIT_TOKEN` env variable.
+- at least one allowed topic or service in `access.rules.*.allow`
 
-You also need auth:
+For standard package build and test commands, see [DEVELOPING.md](./DEVELOPING.md).
 
-- `livekit.token`, or
-- `livekit.api_key` + `livekit.api_secret`
+## Quickstart
 
-### 4) Run
+1. Copy the example parameters file.
 
-If you open a new terminal, run `source /opt/ros/<your-distro>/setup.bash` and `source ~/ros2_ws/install/setup.bash` first.
+   ```bash
+   cp livekit_bridge.params.example.yaml livekit_bridge.params.yaml
+   ```
 
-```bash
-export LIVEKIT_API_KEY=your-livekit-api-key
-export LIVEKIT_API_SECRET=your-livekit-api-secret
+2. Edit `livekit_bridge.params.yaml` and set the connection, at least one allow rule, and either `livekit.token` or the `LIVEKIT_TOKEN` env variable.
 
-ros2 run livekit_ros2_bridge livekit_bridge --ros-args \
-  --params-file /path/to/livekit_bridge.params.yaml \
-  -p livekit.api_key:="$LIVEKIT_API_KEY" \
-  -p livekit.api_secret:="$LIVEKIT_API_SECRET"
-```
+   ```yaml
+   livekit_ros2_bridge:
+     ros__parameters:
+       livekit.url: "wss://your-livekit.example"
+       livekit.token: ""  # optional if LIVEKIT_TOKEN is set
 
-If no allowlist is set, startup will fail in default-deny mode.
+       access.rules.subscribe.allow: ["/camera/*"]
+       access.rules.publish.allow: ["/cmd_vel"]
+       access.rules.service.allow: ["/example/service"]
+   ```
 
-## Configuration
+   For the full parameter model, including access rules, read [docs/configuration.md](./docs/configuration.md).
 
-Required on startup:
+3. Run the node.
 
-- `livekit.url`
-- `livekit.room`
-- `livekit.token` or (`livekit.api_key` + `livekit.api_secret`)
-- At least one allowlist entry across publish/subscribe/service
+   ```bash
+   export LIVEKIT_TOKEN="your-pre-minted-token"
+   ros2 run livekit_ros2_bridge livekit_ros2_bridge_node --ros-args \
+     --params-file $(pwd)/livekit_bridge.params.yaml
+   ```
 
-For advanced parameters, see `livekit_ros2_bridge/parameters.yaml`.
+   Wait for `event=runtime_ready`.
 
-## Development
+4. Connect a LiveKit client to the same room and use the resources you allowed.
 
-### Building
+For a fast first success, allow one service or one small topic path first. Add more rules and video sources after that works.
 
-```bash
-colcon build --packages-select livekit_ros2_bridge --cmake-args "-DCMAKE_EXPORT_COMPILE_COMMANDS=On"
-```
+## Current scope
 
-### Testing
+Supported today:
 
-```bash
-colcon test --packages-select livekit_ros2_bridge
-colcon test-result --verbose
-```
+- ROS service calls
+- topic and service discovery
+- topic subscriptions
+- video subscriptions
+- small ROS topic publications into ROS 2
+- other video sources
 
-### Activating Code Standard Hooks
+Not supported today:
 
-[Pre-commit](https://pre-commit.com) hooks are provided to maintain code standards for this repository.
-
-1. If you do not have pre-commit installed, run `python3 -m pip install pre-commit`
-1. For preexisting repositories, you must run `pre-commit install` in that repository
-1. You can automatically install pre-commit for newly cloned repositories by running
-
-    ```bash
-    git config --global init.templateDir ~/.git-template
-    pre-commit init-templatedir ~/.git-template
-    ```
-
-Now all git commits will be automatically gated by the configured checks.
+- ROS actions
+- ROS parameter get and set
+- full audio support
+- large topic publish payloads
+- Replaying latched topics
+- Metric reporting
 
 ## License
 

@@ -1,0 +1,67 @@
+# Example starter config for `livekit_ros2_bridge_node`.
+# See `parameters.yaml` for the full parameter list and default values.
+#
+# Copy this file to `livekit_bridge.params.yaml` (gitignored), fill in the
+# values for your environment, then run:
+#   ros2 run livekit_ros2_bridge livekit_ros2_bridge_node --ros-args \
+#     --params-file $(pwd)/livekit_bridge.params.yaml
+#
+# The runtime Docker image still expects a local params file for non-secret
+# config. Mount your local file to `/config/livekit_bridge.params.yaml` or set
+# `LIVEKIT_BRIDGE_PARAMS_FILE` to a different in-container path.
+#
+# The bridge will not start until you set:
+# - `livekit.url`: your LiveKit server URL
+# - either `livekit.token` or `LIVEKIT_TOKEN`: a token minted outside the bridge
+# - at least one allowed topic or service in `access.rules.*.allow`
+
+---
+livekit_ros2_bridge:
+  ros__parameters:
+    # Where the bridge should connect.
+    livekit.url: ""  # e.g. "wss://your-livekit.example"
+
+    # Use a token you created outside the bridge. Leave this empty if you want
+    # to inject the token with LIVEKIT_TOKEN instead. If both are set, this
+    # parameter wins.
+    livekit.token: ""
+
+    # Tell the bridge what remote clients are allowed to use.
+    # At least one of these allow lists must contain a real value.
+    # Leave [""] as a placeholder until you are ready to choose real patterns.
+    access.rules.subscribe.allow: [""]  # topics clients may subscribe to, e.g. ["/user/*"]
+    access.rules.publish.allow: [""]  # topics clients may publish to, e.g. ["/user/cmd_vel"]
+    access.rules.service.allow: [""]  # services clients may call, e.g. ["/example/service"]
+
+    # Optional video sources.
+    # Add entries here if you want the bridge to publish video into LiveKit.
+    # `video.topics.*` match one or more ROS topics by pattern.
+    # `video.other.*` run in-process GStreamer source fragments that you provide.
+    # Keep the IDs at the root for now because generate_parameter_library 0.6
+    # in the current test matrix cannot move them cleanly under
+    # `video.topics.ids` / `video.other.ids` yet.
+    # ROS topics use required `pattern`, optional `transform`, and optional
+    # `publish.*` overrides.
+    # Other video sources use required `source`, optional `transform`, and optional
+    # `publish.*` overrides. Their ids are trimmed only; `/front`, `front`,
+    # and `front/` are three distinct other video sources.
+    # The bridge always appends its own queue/convert/I420/appsink tail.
+    #
+    # Optional default LiveKit publish policy:
+    # video.publish.codec: "auto"  # or "vp8", "h264", "av1", "vp9", "h265"
+    # video.publish.max_bitrate_bps: 0
+    # video.publish.max_framerate: 0.0
+    # video.publish.simulcast: "auto"  # or "enabled", "disabled"
+    # video_topic_ids: ["front_camera"]
+    # video_other_ids: ["back_rtsp", "usb_cam"]
+    #
+    # video.topics.front_camera.pattern: "/camera/front/*"
+    # video.topics.front_camera.publish.max_framerate: 15.0
+    # video.topics.front_camera.transform: "videoscale ! video/x-raw,width=1280,height=720"
+    #
+    # video.other.back_rtsp.source: "uridecodebin uri=rtsp://127.0.0.1:8554/front source::latency=0"
+    # video.other.back_rtsp.publish.codec: "h264"
+    # video.other.back_rtsp.transform: ""
+    #
+    # video.other.usb_cam.source: "v4l2src device=/dev/video0 do-timestamp=true"
+    # video.other.usb_cam.transform: ""
