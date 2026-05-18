@@ -76,6 +76,7 @@ target_include_directories(livekit_ros2_bridge_video PUBLIC
   "${livekit_ros2_bridge_private_include_dir}"
 )
 target_link_libraries(livekit_ros2_bridge_video PUBLIC
+  magic_enum::magic_enum
   rclcpp::rclcpp
   LiveKit::livekit
   livekit_ros2_bridge_parameters
@@ -113,6 +114,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
   "${livekit_ros2_bridge_private_include_dir}"
 )
 target_link_libraries(${PROJECT_NAME} PUBLIC
+  magic_enum::magic_enum
   rclcpp::rclcpp
   rclcpp_components::component
 )
