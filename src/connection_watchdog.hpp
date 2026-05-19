@@ -15,18 +15,14 @@
 #pragma once
 
 #include <chrono>
-#include <functional>
+#include <condition_variable>
 #include <mutex>
 #include <optional>
 #include <string_view>
+#include <thread>
 
 #include "livekit/room_event_types.h"
 #include "rclcpp/logger.hpp"
-#include "rclcpp/node_interfaces/node_base_interface.hpp"
-#include "rclcpp/node_interfaces/node_interfaces.hpp"
-#include "rclcpp/node_interfaces/node_logging_interface.hpp"
-#include "rclcpp/node_interfaces/node_timers_interface.hpp"
-#include "rclcpp/timer.hpp"
 #include "runtime_config.hpp"
 
 namespace livekit_ros2_bridge
@@ -35,14 +31,10 @@ namespace livekit_ros2_bridge
 class ConnectionWatchdog final
 {
 public:
-  using CloseCallback = std::function<bool()>;
-  using NodeInterfaces = rclcpp::node_interfaces::NodeInterfaces<
-    rclcpp::node_interfaces::NodeBaseInterface,
-    rclcpp::node_interfaces::NodeLoggingInterface,
-    rclcpp::node_interfaces::NodeTimersInterface>;
   using SteadyClock = std::chrono::steady_clock;
 
-  ConnectionWatchdog(RuntimeConfig::Watchdog config, NodeInterfaces interfaces, CloseCallback close);
+  ConnectionWatchdog(RuntimeConfig::Watchdog config, rclcpp::Logger logger);
+  ~ConnectionWatchdog();
 
   ConnectionWatchdog(const ConnectionWatchdog &) = delete;
   ConnectionWatchdog & operator=(const ConnectionWatchdog &) = delete;
@@ -50,16 +42,17 @@ public:
   ConnectionWatchdog & operator=(ConnectionWatchdog &&) = delete;
 
   void onStateChanged(livekit::ConnectionState state);
+  void stop();
 
 private:
   void clearOutage();
   bool startOutageTimer();
   void startOutage(std::string_view reason);
   void startOutage(livekit::ConnectionState state);
+  void run();
 
   RuntimeConfig::Watchdog config_;
   rclcpp::Logger logger_;
-  CloseCallback close_;
 
   struct Outage
   {
@@ -67,12 +60,12 @@ private:
     SteadyClock::time_point deadline;
   };
 
-  // LiveKit state callbacks and the ROS timer can run on different threads.
+  // LiveKit state callbacks and the watchdog thread can run concurrently.
   std::mutex mutex_;
+  std::condition_variable wake_;
+  bool stop_requested_ = false;
   std::optional<Outage> outage_;
-  rclcpp::TimerBase::SharedPtr timer_;
-
-  void check();
+  std::thread thread_;
 };
 
 }  // namespace livekit_ros2_bridge
