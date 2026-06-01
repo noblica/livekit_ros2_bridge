@@ -32,6 +32,14 @@ find_package(OpenSSL REQUIRED)
 find_package(PkgConfig REQUIRED)
 find_library(SPDLOG_LIBRARY NAMES spdlog REQUIRED)
 
+set(LIVEKIT_ROS2_BRIDGE_PACKAGE_VERSION "${${PROJECT_NAME}_VERSION}")
+
+configure_file(
+  cmake/build_info.hpp.in
+  "${CMAKE_CURRENT_BINARY_DIR}/generated/livekit_ros2_bridge/build_info.hpp"
+  @ONLY
+)
+
 include(cmake/livekit_sdk.cmake)
 livekit_ros2_bridge_configure_livekit_sdk()
 
@@ -111,6 +119,7 @@ add_library(${PROJECT_NAME} SHARED
   src/subscription_qos.cpp
 )
 target_include_directories(${PROJECT_NAME} PRIVATE
+  "${CMAKE_CURRENT_BINARY_DIR}/generated"
   "${livekit_ros2_bridge_private_include_dir}"
 )
 target_link_libraries(${PROJECT_NAME} PUBLIC

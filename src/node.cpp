@@ -17,6 +17,8 @@
 #include <exception>
 #include <memory>
 
+#include "livekit_ros2_bridge/build_info.hpp"
+#include "protocol/constants.hpp"
 #include "rclcpp_components/register_node_macro.hpp"
 #include "room_connection.hpp"
 #include "runtime.hpp"
@@ -29,6 +31,11 @@ namespace livekit_ros2_bridge
 Node::Node(const rclcpp::NodeOptions & options)
 : rclcpp::Node("livekit_ros2_bridge", options)
 {
+  LogEvent(get_logger(), "node_startup")
+    .field("version", build_info::kPackageVersion)
+    .field("protocol_version", protocol::kProtocolVersion)
+    .info();
+
   try {
     runtime_ =
       std::make_unique<Runtime>(*this, createRoomConnection(), loadRuntimeConfig(get_node_parameters_interface()));
