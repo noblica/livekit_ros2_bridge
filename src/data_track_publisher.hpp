@@ -15,8 +15,10 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <string>
 
+#include "protocol/snapshot.hpp"
 #include "rclcpp/clock.hpp"
 #include "rclcpp/node_interfaces/node_graph_interface.hpp"
 #include "rclcpp/node_interfaces/node_topics_interface.hpp"
@@ -57,6 +59,10 @@ public:
   void setIntervalMs(int interval_ms);
 
   const std::string & trackName() const;
+
+  // Returns the cached last message for latched topics, or nullopt if the topic is volatile,
+  // not yet subscribed, or no message has arrived yet.
+  std::optional<LatchedSnapshot> latchedSnapshot() const;
 
 private:
   class Publication;

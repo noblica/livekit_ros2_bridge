@@ -431,7 +431,8 @@ The snapshot is delivered **targeted to the joining subscriber only** (LiveKit `
 
 ### Requirements
 
-- The bridge MUST send `lkros.snapshot` only for topics whose publisher durability is `transient_local`; volatile topics MUST NOT be snapshotted.
+- The bridge MUST send `lkros.snapshot` only for topics whose resolved subscription durability is `transient_local` (whether matched from the publisher or forced by the `subscription.qos.*.durability` override); volatile topics MUST NOT be snapshotted.
+- The bridge MUST deliver the snapshot with reliable delivery.
 - The bridge MUST deliver the snapshot only to a newly joined subscriber permitted to subscribe to the topic; the subscribe access policy applies exactly as for live delivery, and deny takes precedence.
 - The bridge MUST target the snapshot to the joining subscriber and MUST NOT broadcast it to existing subscribers.
 - A client MUST treat the snapshot's `message` as if it had arrived on `track_name`, and SHOULD remain idempotent if it also receives the same value live.

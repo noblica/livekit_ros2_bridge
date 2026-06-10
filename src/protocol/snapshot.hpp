@@ -25,6 +25,9 @@ namespace livekit_ros2_bridge
 // late-joining subscriber over the `lkros.snapshot` data-packet topic. `name`, `interface_type`,
 // and `track_name` mirror the live subscription so the client can route the snapshot onto the
 // data track it already listens to.
+//
+// Populate from the owning `DataTrackPublisher`; assembling the fields by hand risks `name` and
+// `track_name` drifting out of sync with each other.
 struct LatchedSnapshot
 {
   std::string name;

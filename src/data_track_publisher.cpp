@@ -91,16 +91,38 @@ public:
 
     CallbackGate callback_gate_;
 
+    void setLatched(bool latched)
+    {
+      std::lock_guard<std::mutex> lock(throttle_mutex_);
+      is_latched_ = latched;
+    }
+
     void setIntervalMs(int interval_ms)
     {
       std::lock_guard<std::mutex> lock(throttle_mutex_);
       interval_ms_ = interval_ms;
     }
 
+    std::optional<std::vector<std::uint8_t>> cachedCdr() const
+    {
+      std::lock_guard<std::mutex> lock(throttle_mutex_);
+      if (cached_cdr_.empty()) {
+        return std::nullopt;
+      }
+      return cached_cdr_;
+    }
+
     void push(const rclcpp::SerializedMessage & message)
     {
+      const auto & cdr = message.get_rcl_serialized_message();
+
       {
         std::lock_guard<std::mutex> lock(throttle_mutex_);
+
+        if (is_latched_) {
+          cached_cdr_.assign(cdr.buffer, cdr.buffer + message.size());
+        }
+
         if (interval_ms_ != 0) {
           const auto now = std::chrono::steady_clock::now();
           if (!last_push_at_) {
@@ -113,7 +135,6 @@ public:
         }
       }
 
-      const auto & cdr = message.get_rcl_serialized_message();
       const auto result = room_connection_.tryPushDataTrack(
         track_, livekit::DataTrackFrame{std::vector<std::uint8_t>(cdr.buffer, cdr.buffer + message.size())});
       if (result) {
@@ -150,9 +171,11 @@ public:
     std::string track_name_;
     std::shared_ptr<livekit::LocalDataTrack> track_;
 
-    std::mutex throttle_mutex_;
+    mutable std::mutex throttle_mutex_;
     int interval_ms_ = 0;
     std::optional<std::chrono::steady_clock::time_point> last_push_at_;
+    bool is_latched_ = false;
+    std::vector<std::uint8_t> cached_cdr_;
   };
 
   Publication(
@@ -204,6 +227,11 @@ public:
     state_->setIntervalMs(interval_ms);
   }
 
+  std::optional<std::vector<std::uint8_t>> cachedCdr() const
+  {
+    return state_->cachedCdr();
+  }
+
 private:
   void subscribe()
   {
@@ -223,6 +251,8 @@ private:
         .fieldIfNotEmpty("override_id", qos.override_id)
         .info();
     }
+
+    state_->setLatched(qos.qos.durability() == rclcpp::DurabilityPolicy::TransientLocal);
 
     subscription_ = rclcpp::create_generic_subscription(
       topics_,
@@ -307,6 +337,18 @@ void DataTrackPublisher::setIntervalMs(int interval_ms)
 const std::string & DataTrackPublisher::trackName() const
 {
   return track_name_;
+}
+
+std::optional<LatchedSnapshot> DataTrackPublisher::latchedSnapshot() const
+{
+  if (publication_ == nullptr) {
+    return std::nullopt;
+  }
+  auto cdr = publication_->cachedCdr();
+  if (!cdr.has_value()) {
+    return std::nullopt;
+  }
+  return LatchedSnapshot{ros_topic_, interface_type_, track_name_, std::move(*cdr)};
 }
 
 }  // namespace livekit_ros2_bridge
