@@ -74,6 +74,7 @@ Every surface in this specification runs over LiveKit. Requests and control flow
 | --- | --- | --- | --- |
 | Data-Packet Topic | `lkros.heartbeat` | client → bridge | Request and renew subscriptions |
 | Data-Packet Topic | `lkros.status` | bridge → client | Report per-subscription status |
+| Data-Packet Topic | `lkros.snapshot` | bridge → client | Deliver a latched topic's latest message to a late subscriber |
 | Data-Packet Topic | `ros2.topic.pub` | client → bridge | Best-effort ROS topic publication |
 | Data Track | `delivery.track_name` | bridge → client | Stream active non-video ROS topics |
 | Video Track | `delivery.track_name` | bridge → client | Stream ROS image topics or `other_video` sources |
@@ -113,6 +114,7 @@ The same envelope appears in:
 - `ros2.topic.pub.message`
 - `ros2.service.call.request`
 - `ros2.service.call.response`
+- `lkros.snapshot.message`
 
 ## Error Model
 
@@ -391,6 +393,54 @@ Video deliveries use deterministic track names.
 - Active `topic` entries using video delivery MUST still include `interface_type`.
 - Video `track_name` values MUST be deterministic and stable for the target name.
 - `other_video` track names MUST percent-encode any byte outside the RFC 3986 unreserved set.
+
+## Data-Packet Topic: `lkros.snapshot`
+
+### Purpose
+
+`lkros.snapshot` delivers the most recent message of a latched (`transient_local`) ROS topic to a client that subscribes *after* that message was published, via a LiveKit data-packet topic sent from the bridge to the client. It reproduces ROS latched-delivery semantics across the bridge: a late subscriber receives the current value without waiting for the next publish.
+
+The snapshot is delivered **targeted to the joining subscriber only** (LiveKit `destination_identities`), never broadcast, so existing subscribers are not re-notified.
+
+### Example
+
+```json
+{
+  "v": 2,
+  "type": "lkros.snapshot",
+  "kind": "topic",
+  "name": "/map",
+  "interface_type": "nav_msgs/msg/OccupancyGrid",
+  "track_name": "lkros.data.map",
+  "message": {
+    "content_type": "application/x-ros-cdr",
+    "payload_base64": "..."
+  }
+}
+```
+
+### Envelope Requirements
+
+- `v` MUST be the protocol version, currently `2`.
+- `type` MUST always be `lkros.snapshot`.
+- `kind` MUST be `topic`; latched delivery applies only to non-video ROS topics.
+- `name` MUST be the [normalized](#versioning-and-terminology) ROS topic name.
+- `interface_type` MUST be the topic's ROS interface type.
+- `track_name` MUST equal the live data track for the same topic (`lkros.data` prefix with `/` replaced by `.`), so the client can apply the snapshot to the stream it already consumes.
+- `message` MUST use the [ROS payload envelope](#ros-payload-envelope) and carries the same CDR bytes the client would receive on the data track.
+
+### Requirements
+
+- The bridge MUST send `lkros.snapshot` only for topics whose publisher durability is `transient_local`; volatile topics MUST NOT be snapshotted.
+- The bridge MUST deliver the snapshot only to a newly joined subscriber permitted to subscribe to the topic; the subscribe access policy applies exactly as for live delivery, and deny takes precedence.
+- The bridge MUST target the snapshot to the joining subscriber and MUST NOT broadcast it to existing subscribers.
+- A client MUST treat the snapshot's `message` as if it had arrived on `track_name`, and SHOULD remain idempotent if it also receives the same value live.
+
+### Notes
+
+The `message` payload is identical in content to a data-track frame; only the transport differs. Data-track frames are raw CDR bytes broadcast to all subscribers (see [data-track delivery](#data-track-delivery)); a snapshot wraps the same CDR in the ROS payload envelope so it can be addressed to a single subscriber over a data packet.
+
+The `lkros.snapshot` message format is stable as of this protocol version. The bridge begins emitting it once latched-replay delivery is enabled; clients MAY implement the handler ahead of that rollout and will simply receive no snapshots until then.
 
 ## Data-Packet Topic: `ros2.topic.pub`
 

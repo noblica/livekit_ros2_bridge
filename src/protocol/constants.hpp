@@ -23,6 +23,7 @@ namespace livekit_ros2_bridge::protocol
 inline constexpr char kPublishRequestTopic[] = "ros2.topic.pub";
 inline constexpr char kHeartbeatTopic[] = "lkros.heartbeat";
 inline constexpr char kStatusTopic[] = "lkros.status";
+inline constexpr char kSnapshotTopic[] = "lkros.snapshot";
 inline constexpr char kCallServiceMethod[] = "ros2.service.call";
 inline constexpr char kShowInterfaceMethod[] = "ros2.interface.show";
 inline constexpr char kListServicesMethod[] = "ros2.service.list";
