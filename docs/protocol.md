@@ -315,7 +315,7 @@ Active entries (`status: "active"`):
 - MUST set `delivery.kind` to `data` or `video`.
 - MUST include `delivery.track_name`.
 - MAY include `degraded_reason` on video entries when the stream is degraded but still deliverable.
-- MUST include `replay` when the demand had `replay: true`; the value MUST be `"sent"` or `"none"`. Error entries MUST NOT include `replay`.
+- MUST include `replay` when the demand had `replay: true`; the value MUST be `"sent"` or `"none"`. Video entries always echo `"none"`. Error entries MUST NOT include `replay`.
 
 #### Error Entries
 
@@ -419,7 +419,8 @@ The stream name is derived from the ROS topic name: the bridge prefixes `lkros.r
 - The stream MUST be targeted to exactly the requesting client identity; existing subscribers MUST NOT receive it.
 - The subscribe access policy applies exactly as for live delivery; denied clients MUST NOT receive a replay stream.
 - The bridge MUST echo `"replay": "sent"` in the status entry even if the byte-stream dispatch fails; clients SHOULD re-request replay on the next heartbeat if no stream arrives.
-- When a replay stream cannot be sent (volatile topic, empty cache, or access denial), the bridge MUST echo `"replay": "none"` in the status entry.
+- When a replay stream cannot be sent for an active subscription (volatile topic, empty cache, or a topic delivered as video), the bridge MUST echo `"replay": "none"` in the status entry.
+- Denied topics produce an error entry, which never carries `replay`.
 
 ### Notes
 

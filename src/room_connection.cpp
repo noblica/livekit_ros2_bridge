@@ -303,7 +303,17 @@ public:
       /*total_size=*/payload.size(),
       /*mime_type=*/content_type,
       /*destination_identities=*/{destination_identity});
-    writer.write(payload);
+    try {
+      writer.write(payload);
+    } catch (...) {
+      // The writer does not close on destruction; an unterminated stream leaves the
+      // remote reader waiting forever, so close with a reason before propagating.
+      try {
+        writer.close("write failed");
+      } catch (...) {
+      }
+      throw;
+    }
     writer.close();
   }
 

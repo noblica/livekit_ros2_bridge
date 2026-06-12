@@ -332,7 +332,14 @@ void SubscriptionLeaseManager::dispatchReplay(
   const SubscriptionDemand & demand,
   const std::string & requester_identity)
 {
-  if (!demand.replay || status.delivery != SubscriptionDeliveryKind::Data) {
+  if (!demand.replay) {
+    return;
+  }
+
+  // Video deliveries are never cached; echo "none" rather than omitting the field,
+  // since an absent echo signals an old bridge to new clients.
+  if (status.delivery != SubscriptionDeliveryKind::Data) {
+    status.replay = ReplayResult::None;
     return;
   }
 
