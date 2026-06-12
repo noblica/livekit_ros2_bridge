@@ -173,6 +173,10 @@ private:
     const std::optional<std::string> & session_id,
     const SubscriptionStatusReport & report);
 
+  void dispatchReplay(
+    SubscriptionStatus & status,
+    const SubscriptionDemand & demand,
+    const std::string & requester_identity);
   void pruneLeases(Clock::time_point now);
 };
 

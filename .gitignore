@@ -18,6 +18,9 @@ build/
 install/
 log/
 
+# Local Docker build cache (test-local.sh)
+.docker-build/
+
 # Generated parameter module (created by pre-commit)
 livekit_ros2_bridge/parameters.py
 

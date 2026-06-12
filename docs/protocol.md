@@ -74,10 +74,10 @@ Every surface in this specification runs over LiveKit. Requests and control flow
 | --- | --- | --- | --- |
 | Data-Packet Topic | `lkros.heartbeat` | client → bridge | Request and renew subscriptions |
 | Data-Packet Topic | `lkros.status` | bridge → client | Report per-subscription status |
-| Data-Packet Topic | `lkros.snapshot` | bridge → client | Deliver a latched topic's latest message to a late subscriber |
 | Data-Packet Topic | `ros2.topic.pub` | client → bridge | Best-effort ROS topic publication |
 | Data Track | `delivery.track_name` | bridge → client | Stream active non-video ROS topics |
 | Video Track | `delivery.track_name` | bridge → client | Stream ROS image topics or `other_video` sources |
+| Byte Stream | `lkros.replay.<topic>` | bridge → client | Deliver a latched topic's cached last message on request |
 | RPC | `ros2.interface.show` | client ↔ bridge | Fetch interface definitions |
 | RPC | `ros2.service.call` | client ↔ bridge | Call an authorized ROS service |
 | RPC | `ros2.service.list` | client ↔ bridge | List authorized ROS services |
@@ -114,7 +114,6 @@ The same envelope appears in:
 - `ros2.topic.pub.message`
 - `ros2.service.call.request`
 - `ros2.service.call.response`
-- `lkros.snapshot.message`
 
 ## Error Model
 
@@ -222,6 +221,7 @@ Two clients subscribing to the same [normalized](#versioning-and-terminology) no
 - `other_video` names MUST address configured entries from `video.other.<id>`.
 - `delivery_preferences`, when present, MUST be an object.
 - `delivery_preferences.interval_ms`, when present, MUST be an integer.
+- `subscriptions[].replay`, when present, MUST be a boolean; non-boolean values MUST be rejected.
 
 #### Authorization
 
@@ -234,6 +234,7 @@ Two clients subscribing to the same [normalized](#versioning-and-terminology) no
 - `interval_ms: 0` means no preference and MUST NOT override a non-zero interval during coalescing.
 - Duplicate targets (same [canonical name](#versioning-and-terminology)) MUST coalesce into one effective request in first-seen order, and MUST keep the smallest non-zero `interval_ms`.
 - Negative `interval_ms` values MUST remain eligible during coalescing and MUST clamp to `0` only when the lease is applied.
+- `replay` MUST be ORed across duplicate targets: if any duplicate entry for the same canonical name has `replay: true`, the coalesced demand MUST have `replay: true`.
 
 #### Lease Renewal
 
@@ -314,6 +315,7 @@ Active entries (`status: "active"`):
 - MUST set `delivery.kind` to `data` or `video`.
 - MUST include `delivery.track_name`.
 - MAY include `degraded_reason` on video entries when the stream is degraded but still deliverable.
+- MUST include `replay` when the demand had `replay: true`; the value MUST be `"sent"` or `"none"`. Error entries MUST NOT include `replay`.
 
 #### Error Entries
 
@@ -394,54 +396,34 @@ Video deliveries use deterministic track names.
 - Video `track_name` values MUST be deterministic and stable for the target name.
 - `other_video` track names MUST percent-encode any byte outside the RFC 3986 unreserved set.
 
-## Data-Packet Topic: `lkros.snapshot`
+## Byte Stream: `lkros.replay.<topic>`
 
 ### Purpose
 
-`lkros.snapshot` delivers the most recent message of a latched (`transient_local`) ROS topic to a client that subscribes *after* that message was published, via a LiveKit data-packet topic sent from the bridge to the client. It reproduces ROS latched-delivery semantics across the bridge: a late subscriber receives the current value without waiting for the next publish.
+`lkros.replay.<topic>` delivers the cached last message of a latched (`transient_local`) ROS topic to a client that explicitly requests replay. The client opts in per-heartbeat by setting `replay: true` on a subscription demand; the bridge responds with a targeted LiveKit byte stream carrying the cached CDR, then echoes the outcome in the `lkros.status` entry.
 
-The snapshot is delivered **targeted to the joining subscriber only** (LiveKit `destination_identities`), never broadcast, so existing subscribers are not re-notified.
+### Name
 
-### Example
+The stream name is derived from the ROS topic name: the bridge prefixes `lkros.replay` and replaces every `/` with `.`. For example, `/map` → `lkros.replay.map`. This mirrors the `lkros.data.<topic>` naming of the live data track.
 
-```json
-{
-  "v": 2,
-  "type": "lkros.snapshot",
-  "kind": "topic",
-  "name": "/map",
-  "interface_type": "nav_msgs/msg/OccupancyGrid",
-  "track_name": "lkros.data.map",
-  "message": {
-    "content_type": "application/x-ros-cdr",
-    "payload_base64": "..."
-  }
-}
-```
+### Payload
 
-### Envelope Requirements
-
-- `v` MUST be the protocol version, currently `2`.
-- `type` MUST always be `lkros.snapshot`.
-- `kind` MUST be `topic`; latched delivery applies only to non-video ROS topics.
-- `name` MUST be the [normalized](#versioning-and-terminology) ROS topic name.
-- `interface_type` MUST be the topic's ROS interface type.
-- `track_name` MUST equal the live data track for the same topic (`lkros.data` prefix with `/` replaced by `.`), so the client can apply the snapshot to the stream it already consumes.
-- `message` MUST use the [ROS payload envelope](#ros-payload-envelope) and carries the same CDR bytes the client would receive on the data track.
+- The payload is raw serialized CDR bytes — the same bytes the client would receive on the live data track.
+- The content type MUST be `application/x-ros-cdr`.
+- There is no JSON or base64 envelope.
 
 ### Requirements
 
-- The bridge MUST send `lkros.snapshot` only for topics whose resolved subscription durability is `transient_local` (whether matched from the publisher or forced by the `subscription.qos.*.durability` override); volatile topics MUST NOT be snapshotted.
-- The bridge MUST deliver the snapshot with reliable delivery.
-- The bridge MUST deliver the snapshot only to a newly joined subscriber permitted to subscribe to the topic; the subscribe access policy applies exactly as for live delivery, and deny takes precedence.
-- The bridge MUST target the snapshot to the joining subscriber and MUST NOT broadcast it to existing subscribers.
-- A client MUST treat the snapshot's `message` as if it had arrived on `track_name`, and SHOULD remain idempotent if it also receives the same value live.
+- The bridge MUST send a replay stream only for topics whose resolved subscription durability is `transient_local`; volatile topics MUST NOT be replayed.
+- The bridge MUST send a replay stream only when a cached message exists for the topic.
+- The stream MUST be targeted to exactly the requesting client identity; existing subscribers MUST NOT receive it.
+- The subscribe access policy applies exactly as for live delivery; denied clients MUST NOT receive a replay stream.
+- The bridge MUST echo `"replay": "sent"` in the status entry even if the byte-stream dispatch fails; clients SHOULD re-request replay on the next heartbeat if no stream arrives.
+- When a replay stream cannot be sent (volatile topic, empty cache, or access denial), the bridge MUST echo `"replay": "none"` in the status entry.
 
 ### Notes
 
-The `message` payload is identical in content to a data-track frame; only the transport differs. Data-track frames are raw CDR bytes broadcast to all subscribers (see [data-track delivery](#data-track-delivery)); a snapshot wraps the same CDR in the ROS payload envelope so it can be addressed to a single subscriber over a data packet.
-
-The `lkros.snapshot` message format is stable as of this protocol version. The bridge begins emitting it once latched-replay delivery is enabled; clients MAY implement the handler ahead of that rollout and will simply receive no snapshots until then.
+A replay stream MAY arrive after newer live track frames. Clients SHOULD prefer the newer live data when both are received.
 
 ## Data-Packet Topic: `ros2.topic.pub`
 

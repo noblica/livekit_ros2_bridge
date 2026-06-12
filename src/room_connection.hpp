@@ -95,6 +95,14 @@ public:
     const livekit::TrackPublishOptions & options) = 0;
 
   virtual void unpublishVideoTrack(const std::shared_ptr<livekit::LocalVideoTrack> & track) = 0;
+
+  // Send raw bytes as a targeted byte stream addressed to exactly one participant.
+  // topic follows the lkros.replay.<name> naming convention.
+  virtual void sendByteStream(
+    const std::string & topic,
+    const std::string & content_type,
+    const std::vector<std::uint8_t> & payload,
+    const std::string & destination_identity) = 0;
 };
 
 std::unique_ptr<RoomConnection> createRoomConnection();

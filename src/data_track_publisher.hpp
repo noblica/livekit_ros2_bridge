@@ -14,17 +14,27 @@
 
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
-#include "protocol/snapshot.hpp"
 #include "rclcpp/clock.hpp"
 #include "rclcpp/node_interfaces/node_graph_interface.hpp"
 #include "rclcpp/node_interfaces/node_topics_interface.hpp"
 
 namespace livekit_ros2_bridge
 {
+
+struct LatchedSnapshot
+{
+  std::string name;
+  std::string interface_type;
+  std::string track_name;
+  // Raw CDR bytes of the cached message.
+  std::vector<std::uint8_t> cdr;
+};
 
 struct SubscriptionQosConfig;
 class RoomConnection;

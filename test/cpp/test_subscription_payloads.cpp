@@ -484,6 +484,112 @@ TEST(SubscriptionPayloadsTest, SerializeSubscriptionStatusesSerializesExpiryWith
   EXPECT_EQ(body, expected);
 }
 
+TEST(SubscriptionPayloadsTest, ParseHeartbeatAcceptsReplayTrue)
+{
+  const auto heartbeat = parsePayload(
+    R"({"subscriptions":[{"kind":"topic","name":"/battery","replay":true}]})");
+  ASSERT_EQ(heartbeat.demands.size(), 1U);
+  EXPECT_TRUE(heartbeat.demands[0].replay);
+}
+
+TEST(SubscriptionPayloadsTest, ParseHeartbeatAcceptsReplayFalse)
+{
+  const auto heartbeat = parsePayload(
+    R"({"subscriptions":[{"kind":"topic","name":"/battery","replay":false}]})");
+  ASSERT_EQ(heartbeat.demands.size(), 1U);
+  EXPECT_FALSE(heartbeat.demands[0].replay);
+}
+
+TEST(SubscriptionPayloadsTest, ParseHeartbeatTreatsAbsentReplayAsFalse)
+{
+  const auto heartbeat = parsePayload(
+    R"({"subscriptions":[{"kind":"topic","name":"/battery"}]})");
+  ASSERT_EQ(heartbeat.demands.size(), 1U);
+  EXPECT_FALSE(heartbeat.demands[0].replay);
+}
+
+TEST(SubscriptionPayloadsTest, ParseHeartbeatRejectsNonBooleanReplay)
+{
+  expectParseError(
+    nlohmann::json::parse(R"({"subscriptions":[{"kind":"topic","name":"/battery","replay":1}]})"),
+    "heartbeat subscription 'replay' must be a boolean",
+    "subscriptions.replay");
+}
+
+TEST(SubscriptionPayloadsTest, ParseHeartbeatOrsReplayFlagAcrossDuplicateTargets)
+{
+  const auto heartbeat = parsePayload(
+    R"({"subscriptions":[
+      {"kind":"topic","name":"/battery"},
+      {"kind":"topic","name":"/battery","replay":true}
+    ]})");
+  ASSERT_EQ(heartbeat.demands.size(), 1U);
+  EXPECT_TRUE(heartbeat.demands[0].replay);
+
+  const auto heartbeat2 = parsePayload(
+    R"({"subscriptions":[
+      {"kind":"topic","name":"/battery","replay":true},
+      {"kind":"topic","name":"/battery"}
+    ]})");
+  ASSERT_EQ(heartbeat2.demands.size(), 1U);
+  EXPECT_TRUE(heartbeat2.demands[0].replay);
+}
+
+TEST(SubscriptionPayloadsTest, SerializeSubscriptionStatusEmitsReplaySent)
+{
+  auto status = makeStatus(
+    SubscriptionTargetKind::Topic, "/map", SubscriptionDeliveryKind::Data, "lkros.data.map");
+  status.replay = ReplayResult::Sent;
+
+  const auto body = statusBody(
+    std::vector<SubscriptionStatusEntry>{SubscriptionStatusEntry{status}}, std::nullopt, std::nullopt);
+
+  ASSERT_EQ(body["subscriptions"].size(), 1U);
+  EXPECT_EQ(body["subscriptions"][0]["replay"], "sent");
+}
+
+TEST(SubscriptionPayloadsTest, SerializeSubscriptionStatusEmitsReplayNone)
+{
+  auto status = makeStatus(
+    SubscriptionTargetKind::Topic, "/map", SubscriptionDeliveryKind::Data, "lkros.data.map");
+  status.replay = ReplayResult::None;
+
+  const auto body = statusBody(
+    std::vector<SubscriptionStatusEntry>{SubscriptionStatusEntry{status}}, std::nullopt, std::nullopt);
+
+  ASSERT_EQ(body["subscriptions"].size(), 1U);
+  EXPECT_EQ(body["subscriptions"][0]["replay"], "none");
+}
+
+TEST(SubscriptionPayloadsTest, SerializeSubscriptionStatusOmitsReplayWhenAbsent)
+{
+  auto status = makeStatus(
+    SubscriptionTargetKind::Topic, "/battery", SubscriptionDeliveryKind::Data, "lkros.data.battery");
+
+  const auto body = statusBody(
+    std::vector<SubscriptionStatusEntry>{SubscriptionStatusEntry{status}}, std::nullopt, std::nullopt);
+
+  ASSERT_EQ(body["subscriptions"].size(), 1U);
+  EXPECT_FALSE(body["subscriptions"][0].contains("replay"));
+}
+
+TEST(SubscriptionPayloadsTest, SerializeSubscriptionErrorStatusNeverEmitsReplay)
+{
+  const auto body = statusBody(
+    std::vector<SubscriptionStatusEntry>{
+      SubscriptionStatusEntry{makeErrorStatus(
+        SubscriptionTargetKind::Topic,
+        "/battery",
+        SubscriptionErrorReason::Forbidden,
+        "ROS topic '/battery' not permitted.")},
+    },
+    std::nullopt,
+    std::nullopt);
+
+  ASSERT_EQ(body["subscriptions"].size(), 1U);
+  EXPECT_FALSE(body["subscriptions"][0].contains("replay"));
+}
+
 TEST(SubscriptionPayloadsTest, SerializeSubscriptionStatusesSerializesMixedStatuses)
 {
   auto other_video = makeStatus(

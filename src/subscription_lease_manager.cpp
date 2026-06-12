@@ -313,7 +313,9 @@ void SubscriptionLeaseManager::appendDemandStatus(
       throw std::runtime_error("Subscription registry is shut down.");
     }
     const auto resolved = resolveDemand(demand);
-    report.statuses.emplace_back(ensure(requester_identity, resolved, expiry));
+    auto subscription_status = ensure(requester_identity, resolved, expiry);
+    dispatchReplay(subscription_status, demand, requester_identity);
+    report.statuses.emplace_back(std::move(subscription_status));
   } catch (const std::exception & exc) {
     report.statuses.emplace_back(
       SubscriptionErrorStatus{
@@ -323,6 +325,53 @@ void SubscriptionLeaseManager::appendDemandStatus(
         exc.what(),
       });
   }
+}
+
+void SubscriptionLeaseManager::dispatchReplay(
+  SubscriptionStatus & status,
+  const SubscriptionDemand & demand,
+  const std::string & requester_identity)
+{
+  if (!demand.replay || status.delivery != SubscriptionDeliveryKind::Data) {
+    return;
+  }
+
+  const auto key = makeKey(demand.kind, status.name);
+  const auto it = subscriptions_.find(key);
+  if (it == subscriptions_.end()) {
+    status.replay = ReplayResult::None;
+    return;
+  }
+
+  const auto * data_publisher_ptr = std::get_if<DataPublisher>(&it->second.runtime);
+  if (data_publisher_ptr == nullptr) {
+    status.replay = ReplayResult::None;
+    return;
+  }
+
+  auto snapshot = (*data_publisher_ptr)->latchedSnapshot();
+  if (!snapshot.has_value()) {
+    status.replay = ReplayResult::None;
+    return;
+  }
+
+  const std::string replay_topic = protocol::makeReplayTopicName(status.name);
+  try {
+    room_connection_.sendByteStream(
+      replay_topic,
+      protocol::kCdrContentType,
+      snapshot->cdr,
+      requester_identity);
+  } catch (const std::exception & exc) {
+    LogEvent(kLogger, "replay_stream_send_failed")
+      .field("resource", status.name)
+      .field("requester_identity", requester_identity)
+      .field("error", exc.what())
+      .warnThrottle(*clock_, kLogThrottle);
+  }
+  // Echo "sent" even on dispatch failure: the client's retry loop self-heals,
+  // whereas "none" would terminally silence retries.
+  status.replay = ReplayResult::Sent;
 }
 
 void SubscriptionLeaseManager::publishStatusReport(

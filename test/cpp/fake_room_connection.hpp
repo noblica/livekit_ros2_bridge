@@ -53,6 +53,14 @@ struct PublishedDataCall
   std::string topic;
 };
 
+struct SentByteStream
+{
+  std::string topic;
+  std::string content_type;
+  std::vector<std::uint8_t> payload;
+  std::string destination_identity;
+};
+
 class FakeRoomConnection;
 
 struct FakeRoomConnectionState
@@ -79,6 +87,8 @@ struct FakeRoomConnectionState
 
   std::vector<std::string> rejected_rpc_methods;
   std::map<std::string, livekit::LocalParticipant::RpcHandler> rpc_handlers;
+  std::vector<SentByteStream> sent_byte_streams;
+  bool throw_on_send_byte_stream = false;
 
   std::function<void(FakeRoomConnection & connection)> stop_hook;
   std::function<std::shared_ptr<livekit::LocalDataTrack>(const std::string & name)> publish_data_track_handler;
@@ -245,6 +255,20 @@ public:
     std::lock_guard<std::mutex> lock(mutex_);
     video_track_names_[track.get()] = name;
     return track;
+  }
+
+  void sendByteStream(
+    const std::string & topic,
+    const std::string & content_type,
+    const std::vector<std::uint8_t> & payload,
+    const std::string & destination_identity) override
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (state->throw_on_send_byte_stream) {
+      throw std::runtime_error("simulated sendByteStream failure");
+    }
+    state->event_log.push_back("send_byte_stream:" + topic);
+    state->sent_byte_streams.push_back({topic, content_type, payload, destination_identity});
   }
 
   void unpublishVideoTrack(const std::shared_ptr<livekit::LocalVideoTrack> & track) override

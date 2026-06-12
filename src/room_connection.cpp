@@ -27,6 +27,7 @@
 #include <utility>
 #include <vector>
 
+#include "livekit/data_stream.h"
 #include "livekit/data_track_error.h"
 #include "livekit/livekit.h"
 #include "livekit/local_data_track.h"
@@ -281,6 +282,29 @@ public:
           .warn();
       } catch (...) {}
     }
+  }
+
+  void sendByteStream(
+    const std::string & topic,
+    const std::string & content_type,
+    const std::vector<std::uint8_t> & payload,
+    const std::string & destination_identity) override
+  {
+    const auto ref = participantRef();
+    if (ref.participant == nullptr) {
+      throw std::runtime_error(kLocalParticipantUnavailable);
+    }
+    livekit::ByteStreamWriter writer(
+      *ref.participant,
+      /*name=*/"",
+      /*topic=*/topic,
+      /*attributes=*/{},
+      /*stream_id=*/"",
+      /*total_size=*/payload.size(),
+      /*mime_type=*/content_type,
+      /*destination_identities=*/{destination_identity});
+    writer.write(payload);
+    writer.close();
   }
 
 private:

@@ -106,7 +106,6 @@ add_library(${PROJECT_NAME} SHARED
   src/protocol/interfaces_json.cpp
   src/protocol/resources_json.cpp
   src/protocol/services_json.cpp
-  src/protocol/snapshot_json.cpp
   src/protocol/subscriptions_json.cpp
   src/protocol/topic_publish_json.cpp
   src/room_connection.cpp
@@ -228,11 +227,6 @@ if(BUILD_TESTING)
   livekit_ros2_bridge_add_test(
     test_service_call_payloads
     test/cpp/test_service_call_payloads.cpp
-    nlohmann_json::nlohmann_json
-  )
-  livekit_ros2_bridge_add_test(
-    test_snapshot_payloads
-    test/cpp/test_snapshot_payloads.cpp
     nlohmann_json::nlohmann_json
   )
   livekit_ros2_bridge_add_test(

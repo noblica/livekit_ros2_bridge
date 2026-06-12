@@ -15,6 +15,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 namespace livekit_ros2_bridge::protocol
 {
@@ -23,7 +24,6 @@ namespace livekit_ros2_bridge::protocol
 inline constexpr char kPublishRequestTopic[] = "ros2.topic.pub";
 inline constexpr char kHeartbeatTopic[] = "lkros.heartbeat";
 inline constexpr char kStatusTopic[] = "lkros.status";
-inline constexpr char kSnapshotTopic[] = "lkros.snapshot";
 inline constexpr char kCallServiceMethod[] = "ros2.service.call";
 inline constexpr char kShowInterfaceMethod[] = "ros2.interface.show";
 inline constexpr char kListServicesMethod[] = "ros2.service.list";
@@ -40,5 +40,18 @@ inline constexpr std::uint32_t kInvalidRequestRpcCode = 2400;
 inline constexpr std::uint32_t kUnauthorizedRpcCode = 2401;
 inline constexpr std::uint32_t kForbiddenRpcCode = 2403;
 inline constexpr std::uint32_t kInternalRpcCode = 2500;
+
+inline constexpr char kReplayTopicPrefix[] = "lkros.replay";
+
+// Mirrors the lkros.data.<topic> naming in DataTrackPublisher::makeTrackName().
+inline std::string makeReplayTopicName(const std::string & ros_topic)
+{
+  std::string name = kReplayTopicPrefix;
+  name.reserve(name.size() + ros_topic.size());
+  for (char ch : ros_topic) {
+    name.push_back(ch == '/' ? '.' : ch);
+  }
+  return name;
+}
 
 }  // namespace livekit_ros2_bridge::protocol
