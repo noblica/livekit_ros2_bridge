@@ -34,8 +34,6 @@ struct SubscriptionDemand
   SubscriptionTargetKind kind = SubscriptionTargetKind::Topic;
   std::string name;
   std::optional<int> preferred_interval_ms;
-  // When true, the client requests the cached last message for latched topics.
-  bool replay = false;
 };
 
 struct SubscriptionHeartbeat
@@ -51,12 +49,6 @@ enum class SubscriptionDeliveryKind
   Video,
 };
 
-enum class ReplayResult
-{
-  None,
-  Sent,
-};
-
 struct SubscriptionStatus
 {
   SubscriptionTargetKind kind = SubscriptionTargetKind::Topic;
@@ -69,9 +61,6 @@ struct SubscriptionStatus
   int interval_ms = 0;
   SubscriptionDeliveryKind delivery = SubscriptionDeliveryKind::Data;
   std::string track_name;
-
-  // Present only when the demand had replay=true. Never present on error entries.
-  std::optional<ReplayResult> replay;
 };
 
 enum class SubscriptionErrorReason

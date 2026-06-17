@@ -55,7 +55,6 @@ constexpr char kSessionIdField[] = "session_id";
 constexpr char kSubscriptionsField[] = "subscriptions";
 constexpr char kSubscriptionKindField[] = "subscriptions.kind";
 constexpr char kSubscriptionNameField[] = "subscriptions.name";
-constexpr char kSubscriptionReplayField[] = "subscriptions.replay";
 constexpr char kDeliveryPreferencesField[] = "subscriptions.delivery_preferences";
 constexpr char kDeliveryPreferencesIntervalMsField[] = "subscriptions.delivery_preferences.interval_ms";
 constexpr char kHeartbeatTopicExpansionNodeName[] = "livekit_ros2_bridge";
@@ -153,18 +152,6 @@ void parseTarget(const nlohmann::json & entry, SubscriptionDemand & demand)
   }
 }
 
-void parseReplay(const nlohmann::json & entry, SubscriptionDemand & demand)
-{
-  const auto replay_field = entry.find("replay");
-  if (replay_field == entry.end()) {
-    return;
-  }
-  if (!replay_field->is_boolean()) {
-    throw ValidationError(kSubscriptionReplayField, "heartbeat subscription 'replay' must be a boolean");
-  }
-  demand.replay = replay_field->get<bool>();
-}
-
 nlohmann::json serialize(const SubscriptionStatus & status)
 {
   nlohmann::json body = {
@@ -204,17 +191,6 @@ nlohmann::json serialize(const SubscriptionStatus & status)
   }
 
   body["delivery"] = std::move(delivery);
-
-  if (status.replay.has_value()) {
-    switch (*status.replay) {
-      case ReplayResult::Sent:
-        body["replay"] = "sent";
-        break;
-      case ReplayResult::None:
-        body["replay"] = "none";
-        break;
-    }
-  }
 
   return body;
 }
@@ -272,7 +248,6 @@ SubscriptionHeartbeat parse(const nlohmann::json & body)
     if (const auto interval = parseIntervalMs(entry)) {
       demand.preferred_interval_ms = *interval;
     }
-    parseReplay(entry, demand);
 
     const auto [pos, inserted] =
       index_by_target.emplace(std::string(toWire(demand.kind)) + ":" + demand.name, heartbeat.demands.size());
@@ -281,11 +256,7 @@ SubscriptionHeartbeat parse(const nlohmann::json & body)
       continue;
     }
 
-    // Coalesce duplicate targets: OR the replay flag so one true wins.
-    if (demand.replay) {
-      heartbeat.demands[pos->second].replay = true;
-    }
-
+    // Coalesce duplicate targets: keep the smallest non-zero interval.
     if (!demand.preferred_interval_ms.has_value()) {
       continue;
     }

@@ -286,6 +286,7 @@ public:
 
   void sendByteStream(
     const std::string & topic,
+    const std::string & name,
     const std::string & content_type,
     const std::vector<std::uint8_t> & payload,
     const std::string & destination_identity) override
@@ -294,27 +295,60 @@ public:
     if (ref.participant == nullptr) {
       throw std::runtime_error(kLocalParticipantUnavailable);
     }
-    livekit::ByteStreamWriter writer(
-      *ref.participant,
-      /*name=*/"",
-      /*topic=*/topic,
-      /*attributes=*/{},
-      /*stream_id=*/"",
-      /*total_size=*/payload.size(),
-      /*mime_type=*/content_type,
-      /*destination_identities=*/{destination_identity});
-    try {
-      writer.write(payload);
-    } catch (...) {
-      // The writer does not close on destruction; an unterminated stream leaves the
-      // remote reader waiting forever, so close with a reason before propagating.
-      try {
-        writer.close("write failed");
-      } catch (...) {
-      }
-      throw;
-    }
-    writer.close();
+
+    // STOPGAP — converge with the broader uncancellable-blocking-.get() sweep.
+    //
+    // livekit::ByteStreamWriter::write() sends each chunk through an uncancellable blocking SDK
+    // call. On robot networks these block far more often than the SDK surface suggests, and a
+    // stalled client can hang it indefinitely. Running write()/close() on the ROS executor or a
+    // LiveKit callback thread would therefore freeze live data relay, heartbeats, and every other
+    // ROS callback. So the whole construct + write() + close() runs on a *detached, sacrificial*
+    // thread that holds a strong reference to the room (keeping the local participant alive for the
+    // transfer). A hung client leaks exactly one thread instead of wedging a load-bearing one. The
+    // payload is captured by value because the caller's buffer does not outlive this async send.
+    //
+    // This is a deliberately localized fix; it must merge into the systemic blocking-call sweep so
+    // both land on one policy. Do not move write()/close() back onto a caller thread.
+    std::thread(
+      [room = ref.room, topic, name, content_type, payload, destination_identity]() {
+        auto * participant = room == nullptr ? nullptr : room->localParticipant();
+        if (participant == nullptr) {
+          LogEvent(kLogger, "byte_stream_send_skipped")
+            .field("topic", topic)
+            .field("reason", "local_participant_unavailable")
+            .warn();
+          return;
+        }
+
+        livekit::ByteStreamWriter writer(
+          *participant,
+          /*name=*/name,
+          /*topic=*/topic,
+          /*attributes=*/{},
+          /*stream_id=*/"",
+          /*total_size=*/payload.size(),
+          /*mime_type=*/content_type,
+          /*destination_identities=*/{destination_identity});
+        try {
+          writer.write(payload);
+        } catch (const std::exception & exc) {
+          // The writer does not close on destruction; an unterminated stream leaves the remote
+          // reader waiting forever, so close with a reason. The blocking write already ran on this
+          // throwaway thread, so the failure is logged here rather than propagated to a caller.
+          try {
+            writer.close("write failed");
+          } catch (...) {
+          }
+          LogEvent(kLogger, "byte_stream_send_failed")
+            .field("topic", topic)
+            .field("destination_identity", destination_identity)
+            .field("error", exc.what())
+            .warn();
+          return;
+        }
+        writer.close();
+      })
+      .detach();
   }
 
 private:

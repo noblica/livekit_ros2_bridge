@@ -25,6 +25,7 @@
 
 #include "livekit/rpc_error.h"
 #include "protocol/constants.hpp"
+#include "protocol/current_value_json.hpp"
 #include "protocol/interfaces_json.hpp"
 #include "protocol/resources.hpp"
 #include "protocol/resources_json.hpp"
@@ -34,6 +35,7 @@
 #include "ros_executor_queue.hpp"
 #include "ros_interfaces/definition_lookup.hpp"
 #include "ros_service_caller.hpp"
+#include "subscription_lease_manager.hpp"
 #include "utils/log_event.hpp"
 
 namespace livekit_ros2_bridge
@@ -44,11 +46,12 @@ namespace
 
 const auto kLogger = rclcpp::get_logger("livekit_ros2_bridge.rpc_router");
 
-constexpr std::array<const char *, 4> kMethods{
+constexpr std::array<const char *, 5> kMethods{
   protocol::kCallServiceMethod,
   protocol::kShowInterfaceMethod,
   protocol::kListServicesMethod,
   protocol::kListTopicsMethod,
+  protocol::kTopicCurrentMethod,
 };
 
 [[noreturn]] void throwRpcError(
@@ -152,11 +155,13 @@ RpcRouter::RpcRouter(
   rclcpp::node_interfaces::NodeGraphInterface::SharedPtr graph,
   const AccessPolicy & policy,
   RosExecutorQueue & queue,
-  RosServiceCaller & caller)
+  RosServiceCaller & caller,
+  SubscriptionLeaseManager & lease_manager)
 : graph_(std::move(graph))
 , policy_(policy)
 , queue_(queue)
 , caller_(caller)
+, lease_manager_(lease_manager)
 {}
 
 RpcRouter::~RpcRouter()
@@ -186,6 +191,10 @@ bool RpcRouter::registerRpcs(RoomConnection & connection)
   all_registered = connection.registerRpc(
                      protocol::kListTopicsMethod,
                      [this](const livekit::RpcInvocationData & invocation) { return listTopics(invocation); }) &&
+                   all_registered;
+  all_registered = connection.registerRpc(
+                     protocol::kTopicCurrentMethod,
+                     [this](const livekit::RpcInvocationData & invocation) { return requestCurrent(invocation); }) &&
                    all_registered;
 
   return all_registered;
@@ -277,6 +286,36 @@ std::optional<std::string> RpcRouter::listTopics(const livekit::RpcInvocationDat
       return filterResources(graph_->get_topic_names_and_types(), policy_, AccessOperation::Subscribe, request);
     });
     return protocol::resources::serializeTopics(future.get());
+  });
+}
+
+std::optional<std::string> RpcRouter::requestCurrent(const livekit::RpcInvocationData & invocation)
+{
+  return withCallerIdentity(protocol::kTopicCurrentMethod, invocation, [this, &invocation]() {
+    // Parse rejects an unsupported `kind` and malformed payloads as validation errors.
+    auto request = protocol::current_value::parse(invocation.payload);
+
+    // Caches are shared per topic, so the *requesting* identity's Subscribe permission must be
+    // checked on every call — never inferred from "they already have a subscription/cache".
+    if (!policy_.allows(AccessOperation::Subscribe, request.name)) {
+      LogEvent(kLogger, "rpc_request_rejected")
+        .field("method", protocol::kTopicCurrentMethod)
+        .fieldOr("request_id", invocation.request_id)
+        .fieldOr("requester_identity", invocation.caller_identity)
+        .field("reason", "forbidden")
+        .fieldOr("resource", request.name)
+        .warn();
+      throw livekit::RpcError(protocol::kForbiddenRpcCode, "ROS topic '" + request.name + "' not permitted.");
+    }
+
+    // The lookup + dispatch reads the shared subscription map, which the ROS executor owns; marshal
+    // it there (the callService pattern) and block only on the tiny sent/none outcome. The byte
+    // stream the dispatch may trigger is itself non-blocking, so the executor is never stuck on it.
+    auto future = queue_.submit(
+      [this, kind = request.kind, name = request.name, requester_identity = invocation.caller_identity]() {
+        return lease_manager_.dispatchCurrentValue(kind, name, requester_identity);
+      });
+    return protocol::current_value::serialize(future.get());
   });
 }
 

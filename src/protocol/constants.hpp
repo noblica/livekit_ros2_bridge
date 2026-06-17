@@ -15,7 +15,6 @@
 #pragma once
 
 #include <cstdint>
-#include <string>
 
 namespace livekit_ros2_bridge::protocol
 {
@@ -28,6 +27,11 @@ inline constexpr char kCallServiceMethod[] = "ros2.service.call";
 inline constexpr char kShowInterfaceMethod[] = "ros2.interface.show";
 inline constexpr char kListServicesMethod[] = "ros2.service.list";
 inline constexpr char kListTopicsMethod[] = "ros2.topic.list";
+inline constexpr char kTopicCurrentMethod[] = "ros2.topic.current";
+
+// Fixed byte-stream topic for current-value deliveries. One handler per client; the requested
+// ROS topic rides in the stream's `name` field, so no per-topic stream names are derived.
+inline constexpr char kCurrentValueTopic[] = "lkros.current";
 
 inline constexpr char kCdrContentType[] = "application/x-ros-cdr";
 
@@ -40,18 +44,5 @@ inline constexpr std::uint32_t kInvalidRequestRpcCode = 2400;
 inline constexpr std::uint32_t kUnauthorizedRpcCode = 2401;
 inline constexpr std::uint32_t kForbiddenRpcCode = 2403;
 inline constexpr std::uint32_t kInternalRpcCode = 2500;
-
-inline constexpr char kReplayTopicPrefix[] = "lkros.replay";
-
-// Mirrors the lkros.data.<topic> naming in DataTrackPublisher::makeTrackName().
-inline std::string makeReplayTopicName(const std::string & ros_topic)
-{
-  std::string name = kReplayTopicPrefix;
-  name.reserve(name.size() + ros_topic.size());
-  for (char ch : ros_topic) {
-    name.push_back(ch == '/' ? '.' : ch);
-  }
-  return name;
-}
 
 }  // namespace livekit_ros2_bridge::protocol

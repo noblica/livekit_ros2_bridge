@@ -178,15 +178,6 @@ SubscriptionDemand makeTopicDemand(const std::string & name, std::optional<int> 
   return SubscriptionDemand{SubscriptionTargetKind::Topic, name, interval_ms};
 }
 
-SubscriptionDemand makeReplayTopicDemand(const std::string & name)
-{
-  SubscriptionDemand demand;
-  demand.kind = SubscriptionTargetKind::Topic;
-  demand.name = name;
-  demand.replay = true;
-  return demand;
-}
-
 SubscriptionDemand makeOtherVideoDemand(const std::string & name, std::optional<int> interval_ms = std::nullopt)
 {
   return SubscriptionDemand{SubscriptionTargetKind::OtherVideo, name, interval_ms};
@@ -222,9 +213,6 @@ std::vector<std::uint8_t> heartbeatPayloadBytes(const SubscriptionHeartbeat & he
     };
     if (demand.preferred_interval_ms.has_value()) {
       entry["delivery_preferences"] = {{"interval_ms", *demand.preferred_interval_ms}};
-    }
-    if (demand.replay) {
-      entry["replay"] = true;
     }
     body["subscriptions"].push_back(std::move(entry));
   }
@@ -1270,9 +1258,9 @@ TEST_F(SubscriptionLeaseManagerHeartbeatTest, MixedSubscriptionResultsArePublish
   (void)publisher;
 }
 
-// ---- Latched replay tests ----
+// ---- Current-value dispatch tests ----
 
-class SubscriptionLeaseManagerReplayTest : public ::testing::Test
+class SubscriptionLeaseManagerCurrentValueTest : public ::testing::Test
 {
 protected:
   static void SetUpTestSuite()
@@ -1282,7 +1270,7 @@ protected:
 
   void SetUp() override
   {
-    node_ = std::make_shared<rclcpp::Node>("test_replay_node");
+    node_ = std::make_shared<rclcpp::Node>("test_current_value_node");
     executor_.add_node(node_);
     fake_room_connection_ = std::make_unique<FakeRoomConnection>();
     state_ = fake_room_connection_->state;
@@ -1311,9 +1299,9 @@ protected:
   std::shared_ptr<FakeRoomConnectionState> state_;
 };
 
-TEST_F(SubscriptionLeaseManagerReplayTest, ReplayFlagOnLatchedTopicWithCacheSendsStreamAndEchosSent)
+TEST_F(SubscriptionLeaseManagerCurrentValueTest, DispatchOnLatchedTopicWithCacheSendsStreamAndReturnsSent)
 {
-  const std::string topic = "/battery/replay_latched";
+  const std::string topic = "/battery/cv_latched";
   rclcpp::QoS latched_qos(1);
   latched_qos.transient_local();
   auto publisher = node_->create_publisher<sensor_msgs::msg::BatteryState>(topic, latched_qos);
@@ -1321,37 +1309,32 @@ TEST_F(SubscriptionLeaseManagerReplayTest, ReplayFlagOnLatchedTopicWithCacheSend
 
   auto manager = makeManager();
 
-  // First heartbeat: subscribes to the topic (creates DataTrackPublisher).
+  // Subscribing is what makes the bridge cache the latched sample.
   sendHeartbeatAndClear(manager, "requester-1", makeHeartbeat({makeTopicDemand(topic)}));
 
-  // Publish a message and spin until it arrives in the data track (cache populated).
   const auto message = makeBatteryState();
   ASSERT_TRUE(publishUntil(executor_, publisher, message, [&]() {
     return !state_->pushed_data_track_frames.empty();
   }));
 
-  // Send heartbeat with replay=true; cache is now populated.
-  state_->published_data_calls.clear();
-  state_->sent_byte_streams.clear();
-  manager.handleHeartbeatPayload("requester-1", heartbeatPayloadBytes(makeHeartbeat({makeReplayTopicDemand(topic)})));
+  const auto result = manager.dispatchCurrentValue(SubscriptionTargetKind::Topic, topic, "requester-1");
+  EXPECT_EQ(result, CurrentValueResult::Sent);
 
   ASSERT_EQ(state_->sent_byte_streams.size(), 1U);
   const auto & stream = state_->sent_byte_streams[0];
-  EXPECT_EQ(stream.topic, "lkros.replay.battery.replay_latched");
+  EXPECT_EQ(stream.topic, protocol::kCurrentValueTopic);
+  EXPECT_EQ(stream.name, topic);
   EXPECT_EQ(stream.content_type, protocol::kCdrContentType);
   EXPECT_EQ(stream.destination_identity, "requester-1");
   EXPECT_FALSE(stream.payload.empty());
 
   const auto decoded = deserializeMessage<sensor_msgs::msg::BatteryState>(stream.payload);
   EXPECT_FLOAT_EQ(decoded.voltage, message.voltage);
-
-  const auto status = extractPublishedStatusEntry(*state_, "requester-1");
-  EXPECT_EQ(status["replay"], "sent");
 }
 
-TEST_F(SubscriptionLeaseManagerReplayTest, ReplayFlagOnLatchedTopicWithEmptyCacheEchoesNoneAndNoStream)
+TEST_F(SubscriptionLeaseManagerCurrentValueTest, DispatchWithEmptyCacheReturnsNoneAndNoStream)
 {
-  const std::string topic = "/battery/replay_empty_cache";
+  const std::string topic = "/battery/cv_empty_cache";
   rclcpp::QoS latched_qos(1);
   latched_qos.transient_local();
   auto publisher = node_->create_publisher<sensor_msgs::msg::BatteryState>(topic, latched_qos);
@@ -1359,94 +1342,56 @@ TEST_F(SubscriptionLeaseManagerReplayTest, ReplayFlagOnLatchedTopicWithEmptyCach
 
   auto manager = makeManager();
 
-  // Send heartbeat with replay=true before any message is published — cache is empty.
-  manager.handleHeartbeatPayload("requester-1", heartbeatPayloadBytes(makeHeartbeat({makeReplayTopicDemand(topic)})));
+  // Subscribe (creating the publisher) but publish nothing — the cache stays empty.
+  sendHeartbeatAndClear(manager, "requester-1", makeHeartbeat({makeTopicDemand(topic)}));
 
-  // No stream sent.
+  const auto result = manager.dispatchCurrentValue(SubscriptionTargetKind::Topic, topic, "requester-1");
+  EXPECT_EQ(result, CurrentValueResult::None);
   EXPECT_TRUE(state_->sent_byte_streams.empty());
-
-  const auto status = extractPublishedStatusEntry(*state_, "requester-1");
-  EXPECT_EQ(status["replay"], "none");
 
   (void)publisher;
 }
 
-TEST_F(SubscriptionLeaseManagerReplayTest, ReplayFlagOnVolatileTopicEchoesNoneAndNoStream)
+TEST_F(SubscriptionLeaseManagerCurrentValueTest, DispatchOnVolatileTopicReturnsNoneAndNoStream)
 {
-  const std::string topic = "/battery/replay_volatile";
+  const std::string topic = "/battery/cv_volatile";
   auto publisher = advertiseTopic<sensor_msgs::msg::BatteryState>(executor_, node_, topic);
 
   auto manager = makeManager();
-
-  // Subscribe first to create the DataTrackPublisher.
   sendHeartbeatAndClear(manager, "requester-1", makeHeartbeat({makeTopicDemand(topic)}));
 
-  // Publish a message and wait for it to arrive.
   const auto message = makeBatteryState();
   ASSERT_TRUE(publishUntil(executor_, publisher, message, [&]() {
     return !state_->pushed_data_track_frames.empty();
   }));
 
-  // Send replay heartbeat: volatile topics are never cached.
-  state_->published_data_calls.clear();
-  state_->sent_byte_streams.clear();
-  manager.handleHeartbeatPayload("requester-1", heartbeatPayloadBytes(makeHeartbeat({makeReplayTopicDemand(topic)})));
-
+  // A volatile topic is never cached, even after a live frame has been delivered.
+  const auto result = manager.dispatchCurrentValue(SubscriptionTargetKind::Topic, topic, "requester-1");
+  EXPECT_EQ(result, CurrentValueResult::None);
   EXPECT_TRUE(state_->sent_byte_streams.empty());
-
-  const auto status = extractPublishedStatusEntry(*state_, "requester-1");
-  EXPECT_EQ(status["replay"], "none");
 }
 
-TEST_F(SubscriptionLeaseManagerReplayTest, NoReplayFlagYieldsNoReplayFieldAndNoStream)
+TEST_F(SubscriptionLeaseManagerCurrentValueTest, DispatchForUnsubscribedTopicReturnsNoneAndNoStream)
 {
-  const std::string topic = "/battery/replay_no_flag";
+  const std::string topic = "/battery/cv_absent";
   rclcpp::QoS latched_qos(1);
   latched_qos.transient_local();
   auto publisher = node_->create_publisher<sensor_msgs::msg::BatteryState>(topic, latched_qos);
   ASSERT_TRUE(waitForTopic<sensor_msgs::msg::BatteryState>(executor_, node_, topic));
 
   auto manager = makeManager();
-  sendHeartbeatAndClear(manager, "requester-1", makeHeartbeat({makeTopicDemand(topic)}));
 
-  const auto message = makeBatteryState();
-  ASSERT_TRUE(publishUntil(executor_, publisher, message, [&]() {
-    return !state_->pushed_data_track_frames.empty();
-  }));
-
-  // Send heartbeat WITHOUT replay flag.
-  state_->published_data_calls.clear();
-  state_->sent_byte_streams.clear();
-  manager.handleHeartbeatPayload("requester-1", heartbeatPayloadBytes(makeHeartbeat({makeTopicDemand(topic)})));
-
+  // No subscription exists for this topic, so the bridge has nothing cached to dispatch.
+  const auto result = manager.dispatchCurrentValue(SubscriptionTargetKind::Topic, topic, "requester-1");
+  EXPECT_EQ(result, CurrentValueResult::None);
   EXPECT_TRUE(state_->sent_byte_streams.empty());
 
-  const auto status = extractPublishedStatusEntry(*state_, "requester-1");
-  EXPECT_FALSE(status.contains("replay"));
-}
-
-TEST_F(SubscriptionLeaseManagerReplayTest, ForbiddenTopicWithReplayFlagYieldsErrorEntryAndNoStream)
-{
-  const std::string topic = "/battery/replay_forbidden";
-  rclcpp::QoS latched_qos(1);
-  latched_qos.transient_local();
-  auto publisher = node_->create_publisher<sensor_msgs::msg::BatteryState>(topic, latched_qos);
   (void)publisher;
-
-  auto manager = makeManager(makeSubscribePolicy({"*"}, {"/battery/replay_forbidden"}));
-  manager.handleHeartbeatPayload("requester-1", heartbeatPayloadBytes(makeHeartbeat({makeReplayTopicDemand(topic)})));
-
-  EXPECT_TRUE(state_->sent_byte_streams.empty());
-
-  const auto status = extractPublishedStatusEntry(*state_, "requester-1");
-  EXPECT_EQ(status["status"], "error");
-  EXPECT_EQ(status["error"]["reason"], "forbidden");
-  EXPECT_FALSE(status.contains("replay"));
 }
 
-TEST_F(SubscriptionLeaseManagerReplayTest, ReplayOnlyTargetsRequesterNotExistingViewers)
+TEST_F(SubscriptionLeaseManagerCurrentValueTest, DispatchOnlyTargetsRequesterNotExistingViewers)
 {
-  const std::string topic = "/battery/replay_targeted";
+  const std::string topic = "/battery/cv_targeted";
   rclcpp::QoS latched_qos(1);
   latched_qos.transient_local();
   auto publisher = node_->create_publisher<sensor_msgs::msg::BatteryState>(topic, latched_qos);
@@ -1454,7 +1399,7 @@ TEST_F(SubscriptionLeaseManagerReplayTest, ReplayOnlyTargetsRequesterNotExisting
 
   auto manager = makeManager();
 
-  // Viewer A subscribes first and gets frames; it should NOT receive the replay stream.
+  // Viewer A subscribes and receives live frames; it must NOT receive the current-value stream.
   sendHeartbeatAndClear(manager, "viewer-a", makeHeartbeat({makeTopicDemand(topic)}));
 
   const auto message = makeBatteryState();
@@ -1462,44 +1407,35 @@ TEST_F(SubscriptionLeaseManagerReplayTest, ReplayOnlyTargetsRequesterNotExisting
     return !state_->pushed_data_track_frames.empty();
   }));
 
-  // Viewer B requests replay; only B should receive the stream.
-  state_->published_data_calls.clear();
-  state_->sent_byte_streams.clear();
-  manager.handleHeartbeatPayload("viewer-b", heartbeatPayloadBytes(makeHeartbeat({makeReplayTopicDemand(topic)})));
+  // Viewer B requests the current value: caches are shared per topic, but the delivery is targeted.
+  const auto result = manager.dispatchCurrentValue(SubscriptionTargetKind::Topic, topic, "viewer-b");
+  EXPECT_EQ(result, CurrentValueResult::Sent);
 
-  // Discard the status reply for viewer-b, but check the stream destination.
   ASSERT_EQ(state_->sent_byte_streams.size(), 1U);
   EXPECT_EQ(state_->sent_byte_streams[0].destination_identity, "viewer-b");
-
-  // The viewer-a frames received so far are only the live frames; no replay stream for a.
-  for (const auto & stream : state_->sent_byte_streams) {
-    EXPECT_NE(stream.destination_identity, "viewer-a");
-  }
 }
 
-TEST_F(SubscriptionLeaseManagerReplayTest, ReplayFlagOnVideoTopicEchoesNoneAndNoStream)
+TEST_F(SubscriptionLeaseManagerCurrentValueTest, DispatchOnVideoTopicReturnsNoneAndNoStream)
 {
-  const std::string topic = "/camera/replay_video";
+  const std::string topic = "/camera/cv_video";
   auto publisher = node_->create_publisher<sensor_msgs::msg::Image>(topic, rclcpp::QoS(10));
   ASSERT_TRUE(waitForTopic<sensor_msgs::msg::Image>(executor_, node_, topic));
 
   auto manager = makeManager();
-  manager.handleHeartbeatPayload("requester-1", heartbeatPayloadBytes(makeHeartbeat({makeReplayTopicDemand(topic)})));
 
+  // Subscribe so a (video) runtime exists; video deliveries are not data-cached.
+  sendHeartbeatAndClear(manager, "requester-1", makeHeartbeat({makeTopicDemand(topic)}));
+
+  const auto result = manager.dispatchCurrentValue(SubscriptionTargetKind::Topic, topic, "requester-1");
+  EXPECT_EQ(result, CurrentValueResult::None);
   EXPECT_TRUE(state_->sent_byte_streams.empty());
-
-  // The entry must carry an explicit "none": an absent field would signal an old bridge.
-  const auto status = extractPublishedStatusEntry(*state_, "requester-1");
-  EXPECT_EQ(status["status"], "active");
-  EXPECT_EQ(status["delivery"]["kind"], "video");
-  EXPECT_EQ(status["replay"], "none");
 
   (void)publisher;
 }
 
-TEST_F(SubscriptionLeaseManagerReplayTest, TeardownEvictsCacheSoResubscribeStartsEmpty)
+TEST_F(SubscriptionLeaseManagerCurrentValueTest, DispatchAfterTeardownReturnsNoneAndNoStream)
 {
-  const std::string topic = "/battery/replay_teardown_evicts";
+  const std::string topic = "/battery/cv_teardown_evicts";
   rclcpp::QoS latched_qos(1);
   latched_qos.transient_local();
   auto publisher = node_->create_publisher<sensor_msgs::msg::BatteryState>(topic, latched_qos);
@@ -1513,29 +1449,25 @@ TEST_F(SubscriptionLeaseManagerReplayTest, TeardownEvictsCacheSoResubscribeStart
     return !state_->pushed_data_track_frames.empty();
   }));
 
-  // Replay reports "sent": the cache is populated.
-  state_->published_data_calls.clear();
+  // The cache is populated.
+  EXPECT_EQ(
+    manager.dispatchCurrentValue(SubscriptionTargetKind::Topic, topic, "requester-1"), CurrentValueResult::Sent);
   state_->sent_byte_streams.clear();
-  manager.handleHeartbeatPayload("requester-1", heartbeatPayloadBytes(makeHeartbeat({makeReplayTopicDemand(topic)})));
-  EXPECT_EQ(extractPublishedStatusEntry(*state_, "requester-1")["replay"], "sent");
 
   // Let the lease expire and prune: the subscription teardown evicts the cache.
   std::this_thread::sleep_for(kShortHeartbeatLeaseDuration + kLeaseWaitBuffer);
   manager.pruneExpiredLeases();
   ASSERT_FALSE(state_->unpublished_data_track_names.empty());
 
-  // Re-subscribing with replay starts from an empty cache: "none" and no stream.
-  state_->published_data_calls.clear();
-  state_->sent_byte_streams.clear();
-  manager.handleHeartbeatPayload("requester-1", heartbeatPayloadBytes(makeHeartbeat({makeReplayTopicDemand(topic)})));
-
+  // With the subscription gone, the request finds nothing.
+  const auto result = manager.dispatchCurrentValue(SubscriptionTargetKind::Topic, topic, "requester-1");
+  EXPECT_EQ(result, CurrentValueResult::None);
   EXPECT_TRUE(state_->sent_byte_streams.empty());
-  EXPECT_EQ(extractPublishedStatusEntry(*state_, "requester-1")["replay"], "none");
 }
 
-TEST_F(SubscriptionLeaseManagerReplayTest, SendByteStreamFailureStillEchosSent)
+TEST_F(SubscriptionLeaseManagerCurrentValueTest, DispatchReturnsNoneWhenSendFailsSynchronously)
 {
-  const std::string topic = "/battery/replay_send_failure";
+  const std::string topic = "/battery/cv_send_failure";
   rclcpp::QoS latched_qos(1);
   latched_qos.transient_local();
   auto publisher = node_->create_publisher<sensor_msgs::msg::BatteryState>(topic, latched_qos);
@@ -1549,15 +1481,11 @@ TEST_F(SubscriptionLeaseManagerReplayTest, SendByteStreamFailureStillEchosSent)
     return !state_->pushed_data_track_frames.empty();
   }));
 
-  // Arm the failure and send replay heartbeat.
+  // A synchronous dispatch failure is reported as None so the client's retry loop tries again,
+  // rather than as Sent — which would wrongly silence retries for a delivery that never left.
   state_->throw_on_send_byte_stream = true;
-  state_->published_data_calls.clear();
-  state_->sent_byte_streams.clear();
-  manager.handleHeartbeatPayload("requester-1", heartbeatPayloadBytes(makeHeartbeat({makeReplayTopicDemand(topic)})));
-
-  // Status must still echo "sent" so the client's retry loop self-heals.
-  const auto status = extractPublishedStatusEntry(*state_, "requester-1");
-  EXPECT_EQ(status["replay"], "sent");
+  const auto result = manager.dispatchCurrentValue(SubscriptionTargetKind::Topic, topic, "requester-1");
+  EXPECT_EQ(result, CurrentValueResult::None);
 }
 
 }  // namespace

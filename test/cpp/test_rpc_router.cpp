@@ -41,6 +41,7 @@
 #include "rpc_router.hpp"
 #include "sensor_msgs/msg/battery_state.hpp"
 #include "std_srvs/srv/set_bool.hpp"
+#include "subscription_lease_manager.hpp"
 #include "utils/serialized_message.hpp"
 
 namespace livekit_ros2_bridge
@@ -160,6 +161,25 @@ AccessPolicy makeSubscribePolicy(std::vector<std::string> allow = {}, std::vecto
   return AccessPolicy(config);
 }
 
+sensor_msgs::msg::BatteryState makeBatteryState()
+{
+  sensor_msgs::msg::BatteryState message;
+  message.voltage = 48.5F;
+  message.percentage = 0.9F;
+  return message;
+}
+
+std::vector<std::uint8_t> makeSubscribeHeartbeat(const std::string & topic)
+{
+  const std::string body = std::string(R"({"subscriptions":[{"kind":"topic","name":")") + topic + R"("}]})";
+  return std::vector<std::uint8_t>(body.begin(), body.end());
+}
+
+std::string makeCurrentValueRequest(const std::string & kind, const std::string & name)
+{
+  return nlohmann::json{{"kind", kind}, {"name", name}}.dump();
+}
+
 AccessPolicy makeServicePolicy(std::vector<std::string> allow = {}, std::vector<std::string> deny = {})
 {
   AccessPolicyConfig config;
@@ -175,7 +195,16 @@ public:
   : node(std::make_shared<rclcpp::Node>(nextNodeName("rpc_router_test_node")))
   , queue(RosExecutorQueue::NodeInterfaces(*node), node->get_clock())
   , caller(node->get_node_base_interface(), node->get_node_graph_interface(), node->get_node_waitables_interface())
-  , router(node->get_node_graph_interface(), policy, queue, caller)
+  // The lease manager owns the per-topic cache; it allows all subscribes so a test can populate the
+  // cache regardless of the router's (separately supplied) access policy.
+  , lease_manager(
+      node->get_node_parameters_interface(),
+      node->get_node_topics_interface(),
+      node->get_node_graph_interface(),
+      node->get_clock(),
+      connection,
+      makeSubscribePolicy({"*"}))
+  , router(node->get_node_graph_interface(), policy, queue, caller, lease_manager)
   {
     router.registerRpcs(connection);
   }
@@ -193,6 +222,7 @@ public:
   RosExecutorQueue queue;
   RosServiceCaller caller;
   FakeRoomConnection connection;
+  SubscriptionLeaseManager lease_manager;
   RpcRouter router;
 };
 
@@ -218,6 +248,7 @@ TEST_F(RpcRouterTest, RegisteredRpcHandlersRequireCallerIdentityBeforeParsing)
   expectUnauthorized(protocol::kShowInterfaceMethod);
   expectUnauthorized(protocol::kListServicesMethod);
   expectUnauthorized(protocol::kListTopicsMethod);
+  expectUnauthorized(protocol::kTopicCurrentMethod);
 }
 
 TEST_F(RpcRouterTest, ServiceCallRpcMapsInvalidPayloadToInvalidRequest)
@@ -298,16 +329,24 @@ TEST_F(RpcRouterTest, RegisterRpcsIsBestEffortAndUnregistersAllEntrypoints)
     node->get_node_base_interface(), node->get_node_graph_interface(), node->get_node_waitables_interface());
   FakeRoomConnection connection;
   connection.state->rejected_rpc_methods = {protocol::kListServicesMethod};
+  SubscriptionLeaseManager lease_manager(
+    node->get_node_parameters_interface(),
+    node->get_node_topics_interface(),
+    node->get_node_graph_interface(),
+    node->get_clock(),
+    connection,
+    makeSubscribePolicy({"*"}));
 
   const std::vector<std::string> expected_methods = {
     protocol::kCallServiceMethod,
     protocol::kShowInterfaceMethod,
     protocol::kListServicesMethod,
     protocol::kListTopicsMethod,
+    protocol::kTopicCurrentMethod,
   };
 
   {
-    RpcRouter router(node->get_node_graph_interface(), AccessPolicy(), queue, caller);
+    RpcRouter router(node->get_node_graph_interface(), AccessPolicy(), queue, caller, lease_manager);
 
     EXPECT_FALSE(router.registerRpcs(connection));
     EXPECT_EQ(connection.state->registered_rpc_methods, expected_methods);
@@ -315,6 +354,7 @@ TEST_F(RpcRouterTest, RegisterRpcsIsBestEffortAndUnregistersAllEntrypoints)
     EXPECT_EQ(connection.state->rpc_handlers.count(protocol::kShowInterfaceMethod), 1U);
     EXPECT_EQ(connection.state->rpc_handlers.count(protocol::kListServicesMethod), 0U);
     EXPECT_EQ(connection.state->rpc_handlers.count(protocol::kListTopicsMethod), 1U);
+    EXPECT_EQ(connection.state->rpc_handlers.count(protocol::kTopicCurrentMethod), 1U);
   }
 
   EXPECT_TRUE(connection.state->rpc_handlers.empty());
@@ -439,6 +479,90 @@ TEST_F(RpcRouterTest, TopicsListRpcMatchesInterfaceTypeQueryAndAppliesLimitAfter
   ASSERT_EQ(body["topics"].size(), 1U);
   EXPECT_EQ(body["topics"][0]["topic"].get<std::string>(), "/rpc_router/visible_topic");
   EXPECT_EQ(body["topics"][0]["interface_type"].get<std::string>(), "sensor_msgs/msg/BatteryState");
+}
+
+TEST_F(RpcRouterTest, TopicCurrentRpcSendsStreamToCallerForCachedLatchedTopic)
+{
+  RpcRouterHarness harness(makeSubscribePolicy({"*"}));
+  const std::string topic = "/rpc_router/cv_latched";
+
+  rclcpp::QoS latched_qos(1);
+  latched_qos.transient_local();
+  auto publisher = harness.node->create_publisher<sensor_msgs::msg::BatteryState>(topic, latched_qos);
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(harness.node);
+  ASSERT_TRUE(test_support::spinUntil(
+    executor, [&]() { return harness.node->get_topic_names_and_types().count(topic) > 0U; }));
+
+  // Subscribing caches the latched sample; publish until the bridge has received and cached it.
+  harness.lease_manager.handleHeartbeatPayload("participant-1", makeSubscribeHeartbeat(topic));
+  const auto message = makeBatteryState();
+  ASSERT_TRUE(test_support::spinUntil(executor, [&]() {
+    publisher->publish(message);
+    return !harness.connection.state->pushed_data_track_frames.empty();
+  }));
+
+  ScopedExecutorThread executor_thread(executor);
+  const auto response = harness.invokeRpc(
+    protocol::kTopicCurrentMethod, makeRpcInvocation("participant-1", makeCurrentValueRequest("topic", topic)));
+  ASSERT_TRUE(response.has_value());
+  EXPECT_EQ(nlohmann::json::parse(*response)["result"].get<std::string>(), "sent");
+
+  ASSERT_EQ(harness.connection.state->sent_byte_streams.size(), 1U);
+  const auto & stream = harness.connection.state->sent_byte_streams[0];
+  EXPECT_EQ(stream.topic, protocol::kCurrentValueTopic);
+  EXPECT_EQ(stream.name, topic);
+  EXPECT_EQ(stream.content_type, protocol::kCdrContentType);
+  EXPECT_EQ(stream.destination_identity, "participant-1");
+
+  const auto decoded = deserializeMessage<sensor_msgs::msg::BatteryState>(makeSerializedMessage(stream.payload));
+  EXPECT_FLOAT_EQ(decoded.voltage, message.voltage);
+}
+
+TEST_F(RpcRouterTest, TopicCurrentRpcReturnsNoneWhenNothingCached)
+{
+  RpcRouterHarness harness(makeSubscribePolicy({"*"}));
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(harness.node);
+
+  ScopedExecutorThread executor_thread(executor);
+  const auto response = harness.invokeRpc(
+    protocol::kTopicCurrentMethod,
+    makeRpcInvocation("participant-1", makeCurrentValueRequest("topic", "/rpc_router/cv_uncached")));
+  ASSERT_TRUE(response.has_value());
+  EXPECT_EQ(nlohmann::json::parse(*response)["result"].get<std::string>(), "none");
+  EXPECT_TRUE(harness.connection.state->sent_byte_streams.empty());
+}
+
+TEST_F(RpcRouterTest, TopicCurrentRpcReturnsForbiddenForDeniedTopicAndSendsNoStream)
+{
+  RpcRouterHarness harness(makeSubscribePolicy({"*"}, {"/rpc_router/cv_denied"}));
+
+  expectRpcError(
+    [&]() {
+      harness.invokeRpc(
+        protocol::kTopicCurrentMethod,
+        makeRpcInvocation("participant-1", makeCurrentValueRequest("topic", "/rpc_router/cv_denied")));
+    },
+    protocol::kForbiddenRpcCode,
+    "ROS topic '/rpc_router/cv_denied' not permitted.");
+  EXPECT_TRUE(harness.connection.state->sent_byte_streams.empty());
+}
+
+TEST_F(RpcRouterTest, TopicCurrentRpcRejectsUnsupportedKindAsInvalidRequest)
+{
+  RpcRouterHarness harness(makeSubscribePolicy({"*"}));
+
+  expectRpcError(
+    [&]() {
+      harness.invokeRpc(
+        protocol::kTopicCurrentMethod,
+        makeRpcInvocation("participant-1", makeCurrentValueRequest("other_video", "/rpc_router/cv_topic")));
+    },
+    protocol::kInvalidRequestRpcCode);
+  EXPECT_TRUE(harness.connection.state->sent_byte_streams.empty());
 }
 
 }  // namespace

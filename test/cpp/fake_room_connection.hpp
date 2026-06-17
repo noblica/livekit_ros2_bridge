@@ -56,6 +56,7 @@ struct PublishedDataCall
 struct SentByteStream
 {
   std::string topic;
+  std::string name;
   std::string content_type;
   std::vector<std::uint8_t> payload;
   std::string destination_identity;
@@ -259,6 +260,7 @@ public:
 
   void sendByteStream(
     const std::string & topic,
+    const std::string & name,
     const std::string & content_type,
     const std::vector<std::uint8_t> & payload,
     const std::string & destination_identity) override
@@ -268,7 +270,7 @@ public:
       throw std::runtime_error("simulated sendByteStream failure");
     }
     state->event_log.push_back("send_byte_stream:" + topic);
-    state->sent_byte_streams.push_back({topic, content_type, payload, destination_identity});
+    state->sent_byte_streams.push_back({topic, name, content_type, payload, destination_identity});
   }
 
   void unpublishVideoTrack(const std::shared_ptr<livekit::LocalVideoTrack> & track) override

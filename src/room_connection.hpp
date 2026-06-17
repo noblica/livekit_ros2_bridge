@@ -97,9 +97,13 @@ public:
   virtual void unpublishVideoTrack(const std::shared_ptr<livekit::LocalVideoTrack> & track) = 0;
 
   // Send raw bytes as a targeted byte stream addressed to exactly one participant.
-  // topic follows the lkros.replay.<name> naming convention.
+  // `topic` is the fixed stream topic (e.g. lkros.current); `name` is the per-delivery label the
+  // recipient reads to route the stream (e.g. the requested ROS topic). Non-blocking: the actual
+  // SDK write runs on a detached thread, so a slow/hung client never blocks the caller. See the
+  // implementation for the threading rationale.
   virtual void sendByteStream(
     const std::string & topic,
+    const std::string & name,
     const std::string & content_type,
     const std::vector<std::uint8_t> & payload,
     const std::string & destination_identity) = 0;

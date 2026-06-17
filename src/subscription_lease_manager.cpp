@@ -314,7 +314,6 @@ void SubscriptionLeaseManager::appendDemandStatus(
     }
     const auto resolved = resolveDemand(demand);
     auto subscription_status = ensure(requester_identity, resolved, expiry);
-    dispatchReplay(subscription_status, demand, requester_identity);
     report.statuses.emplace_back(std::move(subscription_status));
   } catch (const std::exception & exc) {
     report.statuses.emplace_back(
@@ -327,58 +326,50 @@ void SubscriptionLeaseManager::appendDemandStatus(
   }
 }
 
-void SubscriptionLeaseManager::dispatchReplay(
-  SubscriptionStatus & status,
-  const SubscriptionDemand & demand,
-  const std::string & requester_identity)
+CurrentValueResult SubscriptionLeaseManager::dispatchCurrentValue(
+  SubscriptionTargetKind kind, const std::string & name, const std::string & requester_identity)
 {
-  if (!demand.replay) {
-    return;
-  }
-
-  // Video deliveries are never cached; echo "none" rather than omitting the field,
-  // since an absent echo signals an old bridge to new clients.
-  if (status.delivery != SubscriptionDeliveryKind::Data) {
-    status.replay = ReplayResult::None;
-    return;
-  }
-
-  const auto key = makeKey(demand.kind, status.name);
-  const auto it = subscriptions_.find(key);
+  // Key off the canonically resolved name, exactly as subscriptions are keyed, so a request finds
+  // the publisher another client's subscription created and cached.
+  const auto topics = node_interfaces_.get_node_topics_interface();
+  const auto it = subscriptions_.find(makeKey(kind, resolveName(*topics, kind, name)));
   if (it == subscriptions_.end()) {
-    status.replay = ReplayResult::None;
-    return;
+    return CurrentValueResult::None;
   }
 
+  // Only data deliveries carry a cache; video and other non-data runtimes never do.
   const auto * data_publisher_ptr = std::get_if<DataPublisher>(&it->second.runtime);
   if (data_publisher_ptr == nullptr) {
-    status.replay = ReplayResult::None;
-    return;
+    return CurrentValueResult::None;
   }
 
-  auto snapshot = (*data_publisher_ptr)->latchedSnapshot();
+  const auto snapshot = (*data_publisher_ptr)->latchedSnapshot();
   if (!snapshot.has_value()) {
-    status.replay = ReplayResult::None;
-    return;
+    return CurrentValueResult::None;
   }
 
-  const std::string replay_topic = protocol::makeReplayTopicName(status.name);
   try {
+    // The send is non-blocking (fire-and-forget on a detached thread), so a later transfer failure
+    // is logged inside the sender, not surfaced here. We report Sent the moment the cached bytes are
+    // handed off. `name` carries the resolved ROS topic so the client's one handler can route it.
     room_connection_.sendByteStream(
-      replay_topic,
+      protocol::kCurrentValueTopic,
+      /*name=*/snapshot->name,
       protocol::kCdrContentType,
       snapshot->cdr,
       requester_identity);
   } catch (const std::exception & exc) {
-    LogEvent(kLogger, "replay_stream_send_failed")
-      .field("resource", status.name)
+    // The dispatch failed synchronously (e.g. the room dropped between lookup and send). Report None
+    // so the client's retry loop tries again rather than assuming a delivery that never left.
+    LogEvent(kLogger, "current_value_send_failed")
+      .field("resource", snapshot->name)
       .field("requester_identity", requester_identity)
       .field("error", exc.what())
       .warnThrottle(*clock_, kLogThrottle);
+    return CurrentValueResult::None;
   }
-  // Echo "sent" even on dispatch failure: the client's retry loop self-heals,
-  // whereas "none" would terminally silence retries.
-  status.replay = ReplayResult::Sent;
+
+  return CurrentValueResult::Sent;
 }
 
 void SubscriptionLeaseManager::publishStatusReport(

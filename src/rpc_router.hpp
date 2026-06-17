@@ -26,6 +26,7 @@ namespace livekit_ros2_bridge
 
 class RosExecutorQueue;
 class RosServiceCaller;
+class SubscriptionLeaseManager;
 
 class RpcRouter
 {
@@ -34,7 +35,8 @@ public:
     rclcpp::node_interfaces::NodeGraphInterface::SharedPtr graph,
     const AccessPolicy & policy,
     RosExecutorQueue & queue,
-    RosServiceCaller & caller);
+    RosServiceCaller & caller,
+    SubscriptionLeaseManager & lease_manager);
   ~RpcRouter();
 
   RpcRouter(const RpcRouter &) = delete;
@@ -55,6 +57,7 @@ private:
   // Borrowed by registered callbacks; must outlive this router.
   RosExecutorQueue & queue_;
   RosServiceCaller & caller_;
+  SubscriptionLeaseManager & lease_manager_;
   // Borrowed only for unregistration; must outlive unregisterRpcs()/destruction.
   RoomConnection * registered_connection_ = nullptr;
 
@@ -62,6 +65,7 @@ private:
   std::optional<std::string> showInterfaces(const livekit::RpcInvocationData & invocation);
   std::optional<std::string> listServices(const livekit::RpcInvocationData & invocation);
   std::optional<std::string> listTopics(const livekit::RpcInvocationData & invocation);
+  std::optional<std::string> requestCurrent(const livekit::RpcInvocationData & invocation);
 };
 
 }  // namespace livekit_ros2_bridge
