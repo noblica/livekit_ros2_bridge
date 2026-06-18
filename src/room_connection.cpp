@@ -335,42 +335,60 @@ public:
     std::thread(
       [room = ref.room, topic, name, content_type, payload, destination_identity,
        reservation = std::move(*reservation)]() {
-        auto * participant = room == nullptr ? nullptr : room->localParticipant();
-        if (participant == nullptr) {
-          LogEvent(kLogger, "byte_stream_send_skipped")
-            .field("topic", topic)
-            .field("reason", "local_participant_unavailable")
-            .warn();
-          return;
-        }
-
-        livekit::ByteStreamWriter writer(
-          *participant,
-          /*name=*/name,
-          /*topic=*/topic,
-          /*attributes=*/{},
-          /*stream_id=*/"",
-          /*total_size=*/payload.size(),
-          /*mime_type=*/content_type,
-          /*destination_identities=*/{destination_identity});
+        // Backstop the whole body: the ByteStreamWriter constructor and the success-path close()
+        // below are uncancellable FFI calls that throw (per the SDK header) on transfer errors and
+        // teardown races. An exception escaping a detached thread calls std::terminate() and aborts
+        // the process, so — like RosExecutorQueue::drain() — nothing is allowed past this boundary.
         try {
-          writer.write(payload);
-        } catch (const std::exception & exc) {
-          // The writer does not close on destruction; an unterminated stream leaves the remote
-          // reader waiting forever, so close with a reason. The blocking write already ran on this
-          // throwaway thread, so the failure is logged here rather than propagated to a caller.
-          try {
-            writer.close("write failed");
-          } catch (...) {
+          auto * participant = room == nullptr ? nullptr : room->localParticipant();
+          if (participant == nullptr) {
+            LogEvent(kLogger, "byte_stream_send_skipped")
+              .field("topic", topic)
+              .field("reason", "local_participant_unavailable")
+              .warn();
+            return;
           }
+
+          livekit::ByteStreamWriter writer(
+            *participant,
+            /*name=*/name,
+            /*topic=*/topic,
+            /*attributes=*/{},
+            /*stream_id=*/"",
+            /*total_size=*/payload.size(),
+            /*mime_type=*/content_type,
+            /*destination_identities=*/{destination_identity});
+          try {
+            writer.write(payload);
+          } catch (const std::exception & exc) {
+            // The writer does not close on destruction; an unterminated stream leaves the remote
+            // reader waiting forever, so close with a reason. The blocking write already ran on this
+            // throwaway thread, so the failure is logged here rather than propagated to a caller.
+            try {
+              writer.close("write failed");
+            } catch (...) {
+            }
+            LogEvent(kLogger, "byte_stream_send_failed")
+              .field("topic", topic)
+              .field("destination_identity", destination_identity)
+              .field("error", exc.what())
+              .warn();
+            return;
+          }
+          writer.close();
+        } catch (const std::exception & exc) {
           LogEvent(kLogger, "byte_stream_send_failed")
             .field("topic", topic)
             .field("destination_identity", destination_identity)
             .field("error", exc.what())
             .warn();
-          return;
+        } catch (...) {
+          LogEvent(kLogger, "byte_stream_send_failed")
+            .field("topic", topic)
+            .field("destination_identity", destination_identity)
+            .field("error", "unknown exception")
+            .warn();
         }
-        writer.close();
       })
       .detach();
   }
