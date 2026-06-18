@@ -101,6 +101,8 @@ public:
   // recipient reads to route the stream (e.g. the requested ROS topic). Non-blocking: the actual
   // SDK write runs on a detached thread, so a slow/hung client never blocks the caller. See the
   // implementation for the threading rationale.
+  // Concurrent sends are capped per destination identity; once a client holds the maximum number of
+  // in-flight sends, further calls for that identity throw rather than spawning another thread.
   virtual void sendByteStream(
     const std::string & topic,
     const std::string & name,
