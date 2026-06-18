@@ -98,16 +98,17 @@ public:
 
   // Send raw bytes as a targeted byte stream addressed to exactly one participant.
   // `topic` is the fixed stream topic (e.g. lkros.current); `name` is the per-delivery label the
-  // recipient reads to route the stream (e.g. the requested ROS topic). Non-blocking: the actual
-  // SDK write runs on a detached thread, so a slow/hung client never blocks the caller. See the
-  // implementation for the threading rationale.
+  // recipient reads to route the stream (e.g. the requested ROS topic). `payload` is a shared,
+  // immutable buffer (typically aliased from the publisher's latched cache), so dispatch never
+  // copies the bytes. Non-blocking: the actual SDK write runs on a detached thread, so a slow/hung
+  // client never blocks the caller. See the implementation for the threading rationale.
   // Concurrent sends are capped per destination identity; once a client holds the maximum number of
   // in-flight sends, further calls for that identity throw rather than spawning another thread.
   virtual void sendByteStream(
     const std::string & topic,
     const std::string & name,
     const std::string & content_type,
-    const std::vector<std::uint8_t> & payload,
+    std::shared_ptr<const std::vector<std::uint8_t>> payload,
     const std::string & destination_identity) = 0;
 };
 

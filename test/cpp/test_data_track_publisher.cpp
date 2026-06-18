@@ -374,7 +374,8 @@ TEST(DataTrackPublisherTest, LatchedSnapshotPopulatedForLatchedTopic)
   const auto snapshot = track_publisher->latchedSnapshot();
   ASSERT_TRUE(snapshot.has_value());
   EXPECT_EQ(snapshot->name, topic);
-  EXPECT_FALSE(snapshot->cdr.empty());
+  ASSERT_NE(snapshot->cdr, nullptr);
+  EXPECT_FALSE(snapshot->cdr->empty());
 }
 
 TEST(DataTrackPublisherTest, ThrottledMessageStillUpdatesCacheForLatchedTopic)
@@ -415,7 +416,9 @@ TEST(DataTrackPublisherTest, ThrottledMessageStillUpdatesCacheForLatchedTopic)
 
   const auto snapshot_after_msg2 = track_publisher->latchedSnapshot();
   ASSERT_TRUE(snapshot_after_msg2.has_value());
-  EXPECT_NE(snapshot_after_msg2->cdr, snapshot_after_msg1->cdr);
+  ASSERT_NE(snapshot_after_msg1->cdr, nullptr);
+  ASSERT_NE(snapshot_after_msg2->cdr, nullptr);
+  EXPECT_NE(*snapshot_after_msg2->cdr, *snapshot_after_msg1->cdr);
 }
 
 TEST(DataTrackPublisherTest, DestructionSwallowsUnpublishFailure)

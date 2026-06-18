@@ -262,7 +262,7 @@ public:
     const std::string & topic,
     const std::string & name,
     const std::string & content_type,
-    const std::vector<std::uint8_t> & payload,
+    std::shared_ptr<const std::vector<std::uint8_t>> payload,
     const std::string & destination_identity) override
   {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -270,7 +270,8 @@ public:
       throw std::runtime_error("simulated sendByteStream failure");
     }
     state->event_log.push_back("send_byte_stream:" + topic);
-    state->sent_byte_streams.push_back({topic, name, content_type, payload, destination_identity});
+    state->sent_byte_streams.push_back(
+      {topic, name, content_type, payload ? *payload : std::vector<std::uint8_t>{}, destination_identity});
   }
 
   void unpublishVideoTrack(const std::shared_ptr<livekit::LocalVideoTrack> & track) override

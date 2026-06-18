@@ -103,12 +103,9 @@ public:
       interval_ms_ = interval_ms;
     }
 
-    std::optional<std::vector<std::uint8_t>> cachedCdr() const
+    std::shared_ptr<const std::vector<std::uint8_t>> cachedCdr() const
     {
       std::lock_guard<std::mutex> lock(throttle_mutex_);
-      if (cached_cdr_.empty()) {
-        return std::nullopt;
-      }
       return cached_cdr_;
     }
 
@@ -120,7 +117,10 @@ public:
         std::lock_guard<std::mutex> lock(throttle_mutex_);
 
         if (is_latched_) {
-          cached_cdr_.assign(cdr.buffer, cdr.buffer + message.size());
+          // Build the buffer once and share it immutably; current-value reads and the byte-stream
+          // send then alias this buffer instead of deep-copying the (possibly large) CDR.
+          cached_cdr_ =
+            std::make_shared<const std::vector<std::uint8_t>>(cdr.buffer, cdr.buffer + message.size());
         }
 
         if (interval_ms_ != 0) {
@@ -175,7 +175,7 @@ public:
     int interval_ms_ = 0;
     std::optional<std::chrono::steady_clock::time_point> last_push_at_;
     bool is_latched_ = false;
-    std::vector<std::uint8_t> cached_cdr_;
+    std::shared_ptr<const std::vector<std::uint8_t>> cached_cdr_;
   };
 
   Publication(
@@ -227,7 +227,7 @@ public:
     state_->setIntervalMs(interval_ms);
   }
 
-  std::optional<std::vector<std::uint8_t>> cachedCdr() const
+  std::shared_ptr<const std::vector<std::uint8_t>> cachedCdr() const
   {
     return state_->cachedCdr();
   }
@@ -345,10 +345,10 @@ std::optional<LatchedSnapshot> DataTrackPublisher::latchedSnapshot() const
     return std::nullopt;
   }
   auto cdr = publication_->cachedCdr();
-  if (!cdr.has_value()) {
+  if (cdr == nullptr) {
     return std::nullopt;
   }
-  return LatchedSnapshot{ros_topic_, std::move(*cdr)};
+  return LatchedSnapshot{ros_topic_, std::move(cdr)};
 }
 
 }  // namespace livekit_ros2_bridge

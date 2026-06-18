@@ -31,8 +31,9 @@ struct LatchedSnapshot
 {
   // Resolved ROS topic name of the cached message.
   std::string name;
-  // Raw CDR bytes of the cached message.
-  std::vector<std::uint8_t> cdr;
+  // Raw CDR bytes of the cached message, shared immutably with the publisher's cache so a snapshot
+  // costs a pointer copy rather than copying the whole (potentially multi-MB) message.
+  std::shared_ptr<const std::vector<std::uint8_t>> cdr;
 };
 
 struct SubscriptionQosConfig;

@@ -296,9 +296,20 @@ public:
     const std::string & topic,
     const std::string & name,
     const std::string & content_type,
-    const std::vector<std::uint8_t> & payload,
+    std::shared_ptr<const std::vector<std::uint8_t>> payload,
     const std::string & destination_identity) override
   {
+    // Defend the interface: callers dispatch only when a cached value exists, but a null buffer has
+    // nothing to send, so skip before reserving a slot or spawning a thread.
+    if (payload == nullptr) {
+      LogEvent(kLogger, "byte_stream_send_skipped")
+        .field("topic", topic)
+        .field("destination_identity", destination_identity)
+        .field("reason", "empty_payload")
+        .warn();
+      return;
+    }
+
     const auto ref = participantRef();
     if (ref.participant == nullptr) {
       throw std::runtime_error(kLocalParticipantUnavailable);
@@ -355,11 +366,11 @@ public:
             /*topic=*/topic,
             /*attributes=*/{},
             /*stream_id=*/"",
-            /*total_size=*/payload.size(),
+            /*total_size=*/payload->size(),
             /*mime_type=*/content_type,
             /*destination_identities=*/{destination_identity});
           try {
-            writer.write(payload);
+            writer.write(*payload);
           } catch (const std::exception & exc) {
             // The writer does not close on destruction; an unterminated stream leaves the remote
             // reader waiting forever, so close with a reason. The blocking write already ran on this
