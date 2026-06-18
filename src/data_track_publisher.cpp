@@ -348,7 +348,7 @@ std::optional<LatchedSnapshot> DataTrackPublisher::latchedSnapshot() const
   if (!cdr.has_value()) {
     return std::nullopt;
   }
-  return LatchedSnapshot{ros_topic_, interface_type_, track_name_, std::move(*cdr)};
+  return LatchedSnapshot{ros_topic_, std::move(*cdr)};
 }
 
 }  // namespace livekit_ros2_bridge

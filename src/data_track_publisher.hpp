@@ -29,9 +29,8 @@ namespace livekit_ros2_bridge
 
 struct LatchedSnapshot
 {
+  // Resolved ROS topic name of the cached message.
   std::string name;
-  std::string interface_type;
-  std::string track_name;
   // Raw CDR bytes of the cached message.
   std::vector<std::uint8_t> cdr;
 };

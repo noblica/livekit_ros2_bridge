@@ -79,20 +79,13 @@ CurrentValueRequest parse(const std::string & payload)
 
 std::string serialize(CurrentValueResult result)
 {
-  const char * value = nullptr;
   switch (result) {
     case CurrentValueResult::Sent:
-      value = "sent";
-      break;
+      return Json{{kResultField, "sent"}}.dump();
     case CurrentValueResult::None:
-      value = "none";
-      break;
+      return Json{{kResultField, "none"}}.dump();
   }
-  if (value == nullptr) {
-    throw std::invalid_argument("current-value result is invalid");
-  }
-
-  return Json{{kResultField, value}}.dump();
+  throw std::invalid_argument("current-value result is invalid");
 }
 
 }  // namespace livekit_ros2_bridge::protocol::current_value

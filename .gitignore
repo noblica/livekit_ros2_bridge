@@ -18,7 +18,7 @@ build/
 install/
 log/
 
-# Local Docker build cache (test-local.sh)
+# Local Docker build cache from containerized test runs
 .docker-build/
 
 # Generated parameter module (created by pre-commit)

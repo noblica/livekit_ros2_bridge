@@ -374,8 +374,6 @@ TEST(DataTrackPublisherTest, LatchedSnapshotPopulatedForLatchedTopic)
   const auto snapshot = track_publisher->latchedSnapshot();
   ASSERT_TRUE(snapshot.has_value());
   EXPECT_EQ(snapshot->name, topic);
-  EXPECT_EQ(snapshot->interface_type, batteryStateInterfaceType());
-  EXPECT_EQ(snapshot->track_name, "lkros.data.battery.latched_snapshot");
   EXPECT_FALSE(snapshot->cdr.empty());
 }
 

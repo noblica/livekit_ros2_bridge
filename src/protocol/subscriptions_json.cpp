@@ -191,7 +191,6 @@ nlohmann::json serialize(const SubscriptionStatus & status)
   }
 
   body["delivery"] = std::move(delivery);
-
   return body;
 }
 
@@ -256,7 +255,6 @@ SubscriptionHeartbeat parse(const nlohmann::json & body)
       continue;
     }
 
-    // Coalesce duplicate targets: keep the smallest non-zero interval.
     if (!demand.preferred_interval_ms.has_value()) {
       continue;
     }
