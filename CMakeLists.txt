@@ -179,7 +179,7 @@ if(BUILD_TESTING)
   livekit_ros2_bridge_add_test(test_access_policy test/cpp/test_access_policy.cpp)
   livekit_ros2_bridge_add_test(test_base64 test/cpp/test_base64.cpp)
   livekit_ros2_bridge_add_test(test_callback_gate test/cpp/test_callback_gate.cpp)
-livekit_ros2_bridge_add_test(test_connection_watchdog test/cpp/test_connection_watchdog.cpp)
+  livekit_ros2_bridge_add_test(test_connection_watchdog test/cpp/test_connection_watchdog.cpp)
   livekit_ros2_bridge_add_test(
     test_current_value_payloads
     test/cpp/test_current_value_payloads.cpp

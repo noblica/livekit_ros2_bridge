@@ -291,15 +291,11 @@ public:
     std::shared_ptr<const std::vector<std::uint8_t>> payload,
     const std::string & destination_identity) override
   {
-    // Defend the interface: callers dispatch only when a cached value exists, but a null buffer has
-    // nothing to send, so skip before reserving a slot or spawning a thread.
+    // Defend the interface: callers dispatch only when a cached value exists, so a null buffer is a
+    // caller bug. Reject it before spawning a thread, and as an invalid argument (not a silent skip)
+    // so the caller can't mistake "nothing sent" for a successful send.
     if (payload == nullptr) {
-      LogEvent(kLogger, "byte_stream_send_skipped")
-        .field("topic", topic)
-        .field("destination_identity", destination_identity)
-        .field("reason", "empty_payload")
-        .warn();
-      return;
+      throw std::invalid_argument("Byte-stream payload is required.");
     }
 
     const auto ref = participantRef();
