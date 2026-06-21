@@ -97,7 +97,7 @@ public:
   virtual void unpublishVideoTrack(const std::shared_ptr<livekit::LocalVideoTrack> & track) = 0;
 
   // Send raw bytes as a targeted byte stream addressed to exactly one participant.
-  // `topic` is the fixed stream topic (e.g. lkros.current); `name` is the per-delivery label the
+  // `topic` is the fixed stream topic (e.g. lkros.echo.once); `name` is the per-delivery label the
   // recipient reads to route the stream (e.g. the requested ROS topic). `payload` is a shared,
   // immutable buffer (typically aliased from the publisher's latched cache), so dispatch never
   // copies the bytes. Non-blocking: the actual SDK write runs on a detached thread, so a slow/hung

@@ -77,12 +77,12 @@ Every surface in this specification runs over LiveKit. Requests and control flow
 | Data-Packet Topic | `ros2.topic.pub` | client → bridge | Best-effort ROS topic publication |
 | Data Track | `delivery.track_name` | bridge → client | Stream active non-video ROS topics |
 | Video Track | `delivery.track_name` | bridge → client | Stream ROS image topics or `other_video` sources |
-| Byte Stream | `lkros.current` | bridge → client | Deliver a topic's cached current value on request |
+| Byte Stream | `lkros.echo.once` | bridge → client | Deliver a topic's cached current value on request |
 | RPC | `ros2.interface.show` | client ↔ bridge | Fetch interface definitions |
 | RPC | `ros2.service.call` | client ↔ bridge | Call an authorized ROS service |
 | RPC | `ros2.service.list` | client ↔ bridge | List authorized ROS services |
 | RPC | `ros2.topic.list` | client ↔ bridge | List authorized ROS topics |
-| RPC | `ros2.topic.current` | client ↔ bridge | Request a topic's cached current value |
+| RPC | `ros2.topic.echo.once` | client ↔ bridge | Request a topic's cached current value |
 
 Data-track and video-track names are not fixed strings. Clients learn them from an active [`lkros.status`](#data-packet-topic-lkrosstatus) entry and subscribe to the LiveKit publication with that name.
 
@@ -394,15 +394,15 @@ Video deliveries use deterministic track names.
 - Video `track_name` values MUST be deterministic and stable for the target name.
 - `other_video` track names MUST percent-encode any byte outside the RFC 3986 unreserved set.
 
-## Byte Stream: `lkros.current`
+## Byte Stream: `lkros.echo.once`
 
 ### Purpose
 
-`lkros.current` delivers the cached current value of a latched (`transient_local`) ROS topic to a client that explicitly requests it through the [`ros2.topic.current`](#rpc-ros2topiccurrent) RPC. The bridge responds with a targeted LiveKit byte stream carrying the cached CDR, then reports the outcome in the RPC response.
+`lkros.echo.once` delivers the cached current value of a latched (`transient_local`) ROS topic to a client that explicitly requests it through the [`ros2.topic.echo.once`](#rpc-ros2topicechoonce) RPC. The bridge responds with a targeted LiveKit byte stream carrying the cached CDR, then reports the outcome in the RPC response.
 
 ### Name
 
-`lkros.current` is a single fixed stream topic; it is NOT derived per ROS topic. Each delivery carries the resolved ROS topic name in the byte stream's `name` field, so one client-side handler routes every current-value delivery. This differs from the live data track, whose name is derived per topic (`lkros.data.<topic>`).
+`lkros.echo.once` is a single fixed stream topic; it is NOT derived per ROS topic. Each delivery carries the resolved ROS topic name in the byte stream's `name` field, so one client-side handler routes every current-value delivery. This differs from the live data track, whose name is derived per topic (`lkros.data.<topic>`).
 
 ### Payload
 
@@ -412,12 +412,12 @@ Video deliveries use deterministic track names.
 
 ### Requirements
 
-- The bridge caches a topic's value only while an active subscription exists for it; `ros2.topic.current` reads that cache and does not itself create a subscription. If no client has an active subscription for the topic, there is no cached value.
+- The bridge caches a topic's value only while an active subscription exists for it; `ros2.topic.echo.once` reads that cache and does not itself create a subscription. If no client has an active subscription for the topic, there is no cached value.
 - The bridge MUST send a stream only for topics whose resolved subscription durability is `transient_local`; volatile topics are never cached and MUST NOT be sent.
 - The bridge MUST send a stream only when a cached value exists for the topic.
 - The stream MUST be targeted to exactly the requesting client identity; existing subscribers MUST NOT receive it.
 - The subscribe access policy applies exactly as for live delivery; the requesting identity's `access.rules.subscribe.*` is re-checked on every call.
-- The byte-stream dispatch is non-blocking: the bridge hands the cached bytes to an asynchronous sender and reports `"sent"` at that point (see [`ros2.topic.current`](#rpc-ros2topiccurrent)). A transfer failure that occurs after the handoff is logged by the bridge but does not change the already-returned `"sent"` result.
+- The byte-stream dispatch is non-blocking: the bridge hands the cached bytes to an asynchronous sender and reports `"sent"` at that point (see [`ros2.topic.echo.once`](#rpc-ros2topicechoonce)). A transfer failure that occurs after the handoff is logged by the bridge but does not change the already-returned `"sent"` result.
 
 ### Notes
 
@@ -652,11 +652,11 @@ Clients that omit `interface_type` should be prepared for ambiguity to fail the 
 - Each entry MUST include `topic` and `interface_type`.
 - `topics` MAY be empty when no authorized resource matches.
 
-## RPC: `ros2.topic.current`
+## RPC: `ros2.topic.echo.once`
 
 ### Purpose
 
-`ros2.topic.current` requests the cached current value of a topic. When a value is available, the bridge delivers it to the caller as a targeted [`lkros.current`](#byte-stream-lkroscurrent) byte stream and answers the RPC with `{"result": "sent"}`. This lets a late-joining client pull the last message of a latched (`transient_local`) topic without waiting for the next publication.
+`ros2.topic.echo.once` requests the cached current value of a topic. When a value is available, the bridge delivers it to the caller as a targeted [`lkros.echo.once`](#byte-stream-lkrosechoonce) byte stream and answers the RPC with `{"result": "sent"}`. This lets a late-joining client pull the last message of a latched (`transient_local`) topic without waiting for the next publication.
 
 ### Example Request
 
@@ -703,7 +703,7 @@ Rough mapping from familiar `ros2` commands to the bridge. Request-response work
 | `ros2 service list` | RPC `ros2.service.list` | Lists services this client may call, with interface types. |
 | `ros2 topic echo /topic` | `lkros.heartbeat` → `lkros.status` → data or video track | Send a heartbeat, read the status, then read the named track. Most topics use a data track; `sensor_msgs/msg/Image` and `sensor_msgs/msg/CompressedImage` may use a video track. |
 | `ros2 topic list` | RPC `ros2.topic.list` | Lists topics this client may use, with interface types. |
-| `ros2 topic echo --once /topic` (latched) | RPC `ros2.topic.current` → `lkros.current` byte stream | Pulls the cached current value of a latched topic. Requires an active subscription to populate the cache; returns `none` for volatile, video, or uncached topics. |
+| `ros2 topic echo --once /topic` (latched) | RPC `ros2.topic.echo.once` → `lkros.echo.once` byte stream | Pulls the cached current value of a latched topic. Requires an active subscription to populate the cache; returns `none` for volatile, video, or uncached topics. |
 | `ros2 topic pub /topic Type ...` | Data-packet topic `ros2.topic.pub` | Best-effort single-message publish for small allowed writes. No ack. |
 
 ## Informative: Walkthroughs

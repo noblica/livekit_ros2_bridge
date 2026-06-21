@@ -1322,7 +1322,7 @@ TEST_F(SubscriptionLeaseManagerCurrentValueTest, DispatchOnLatchedTopicWithCache
 
   ASSERT_EQ(state_->sent_byte_streams.size(), 1U);
   const auto & stream = state_->sent_byte_streams[0];
-  EXPECT_EQ(stream.topic, protocol::kCurrentValueTopic);
+  EXPECT_EQ(stream.topic, protocol::kEchoOnceTopic);
   EXPECT_EQ(stream.name, topic);
   EXPECT_EQ(stream.content_type, protocol::kCdrContentType);
   EXPECT_EQ(stream.destination_identity, "requester-1");

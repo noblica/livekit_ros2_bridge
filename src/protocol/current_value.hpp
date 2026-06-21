@@ -22,7 +22,7 @@ namespace livekit_ros2_bridge
 {
 
 // "Request the current value of a topic" — the generic, client-triggered primitive behind the
-// ros2.topic.current RPC.
+// ros2.topic.echo.once RPC.
 struct CurrentValueRequest
 {
   // Reuses the subscription target-kind discriminant so the primitive can grow new kinds later

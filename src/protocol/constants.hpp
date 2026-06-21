@@ -27,11 +27,11 @@ inline constexpr char kCallServiceMethod[] = "ros2.service.call";
 inline constexpr char kShowInterfaceMethod[] = "ros2.interface.show";
 inline constexpr char kListServicesMethod[] = "ros2.service.list";
 inline constexpr char kListTopicsMethod[] = "ros2.topic.list";
-inline constexpr char kTopicCurrentMethod[] = "ros2.topic.current";
+inline constexpr char kTopicEchoOnceMethod[] = "ros2.topic.echo.once";
 
-// Fixed byte-stream topic for current-value deliveries. One handler per client; the requested
+// Fixed byte-stream topic for echo-once deliveries. One handler per client; the requested
 // ROS topic rides in the stream's `name` field, so no per-topic stream names are derived.
-inline constexpr char kCurrentValueTopic[] = "lkros.current";
+inline constexpr char kEchoOnceTopic[] = "lkros.echo.once";
 
 inline constexpr char kCdrContentType[] = "application/x-ros-cdr";
 

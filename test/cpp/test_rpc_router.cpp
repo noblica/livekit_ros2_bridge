@@ -248,7 +248,7 @@ TEST_F(RpcRouterTest, RegisteredRpcHandlersRequireCallerIdentityBeforeParsing)
   expectUnauthorized(protocol::kShowInterfaceMethod);
   expectUnauthorized(protocol::kListServicesMethod);
   expectUnauthorized(protocol::kListTopicsMethod);
-  expectUnauthorized(protocol::kTopicCurrentMethod);
+  expectUnauthorized(protocol::kTopicEchoOnceMethod);
 }
 
 TEST_F(RpcRouterTest, ServiceCallRpcMapsInvalidPayloadToInvalidRequest)
@@ -342,7 +342,7 @@ TEST_F(RpcRouterTest, RegisterRpcsIsBestEffortAndUnregistersAllEntrypoints)
     protocol::kShowInterfaceMethod,
     protocol::kListServicesMethod,
     protocol::kListTopicsMethod,
-    protocol::kTopicCurrentMethod,
+    protocol::kTopicEchoOnceMethod,
   };
 
   {
@@ -354,7 +354,7 @@ TEST_F(RpcRouterTest, RegisterRpcsIsBestEffortAndUnregistersAllEntrypoints)
     EXPECT_EQ(connection.state->rpc_handlers.count(protocol::kShowInterfaceMethod), 1U);
     EXPECT_EQ(connection.state->rpc_handlers.count(protocol::kListServicesMethod), 0U);
     EXPECT_EQ(connection.state->rpc_handlers.count(protocol::kListTopicsMethod), 1U);
-    EXPECT_EQ(connection.state->rpc_handlers.count(protocol::kTopicCurrentMethod), 1U);
+    EXPECT_EQ(connection.state->rpc_handlers.count(protocol::kTopicEchoOnceMethod), 1U);
   }
 
   EXPECT_TRUE(connection.state->rpc_handlers.empty());
@@ -505,13 +505,13 @@ TEST_F(RpcRouterTest, TopicCurrentRpcSendsStreamToCallerForCachedLatchedTopic)
 
   ScopedExecutorThread executor_thread(executor);
   const auto response = harness.invokeRpc(
-    protocol::kTopicCurrentMethod, makeRpcInvocation("participant-1", makeCurrentValueRequest("topic", topic)));
+    protocol::kTopicEchoOnceMethod, makeRpcInvocation("participant-1", makeCurrentValueRequest("topic", topic)));
   ASSERT_TRUE(response.has_value());
   EXPECT_EQ(nlohmann::json::parse(*response)["result"].get<std::string>(), "sent");
 
   ASSERT_EQ(harness.connection.state->sent_byte_streams.size(), 1U);
   const auto & stream = harness.connection.state->sent_byte_streams[0];
-  EXPECT_EQ(stream.topic, protocol::kCurrentValueTopic);
+  EXPECT_EQ(stream.topic, protocol::kEchoOnceTopic);
   EXPECT_EQ(stream.name, topic);
   EXPECT_EQ(stream.content_type, protocol::kCdrContentType);
   EXPECT_EQ(stream.destination_identity, "participant-1");
@@ -529,7 +529,7 @@ TEST_F(RpcRouterTest, TopicCurrentRpcReturnsNoneWhenNothingCached)
 
   ScopedExecutorThread executor_thread(executor);
   const auto response = harness.invokeRpc(
-    protocol::kTopicCurrentMethod,
+    protocol::kTopicEchoOnceMethod,
     makeRpcInvocation("participant-1", makeCurrentValueRequest("topic", "/rpc_router/cv_uncached")));
   ASSERT_TRUE(response.has_value());
   EXPECT_EQ(nlohmann::json::parse(*response)["result"].get<std::string>(), "none");
@@ -543,7 +543,7 @@ TEST_F(RpcRouterTest, TopicCurrentRpcReturnsForbiddenForDeniedTopicAndSendsNoStr
   expectRpcError(
     [&]() {
       harness.invokeRpc(
-        protocol::kTopicCurrentMethod,
+        protocol::kTopicEchoOnceMethod,
         makeRpcInvocation("participant-1", makeCurrentValueRequest("topic", "/rpc_router/cv_denied")));
     },
     protocol::kForbiddenRpcCode,
@@ -558,7 +558,7 @@ TEST_F(RpcRouterTest, TopicCurrentRpcRejectsUnsupportedKindAsInvalidRequest)
   expectRpcError(
     [&]() {
       harness.invokeRpc(
-        protocol::kTopicCurrentMethod,
+        protocol::kTopicEchoOnceMethod,
         makeRpcInvocation("participant-1", makeCurrentValueRequest("other_video", "/rpc_router/cv_topic")));
     },
     protocol::kInvalidRequestRpcCode);

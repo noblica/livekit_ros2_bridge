@@ -51,7 +51,7 @@ constexpr std::array<const char *, 5> kMethods{
   protocol::kShowInterfaceMethod,
   protocol::kListServicesMethod,
   protocol::kListTopicsMethod,
-  protocol::kTopicCurrentMethod,
+  protocol::kTopicEchoOnceMethod,
 };
 
 [[noreturn]] void throwRpcError(
@@ -193,7 +193,7 @@ bool RpcRouter::registerRpcs(RoomConnection & connection)
                      [this](const livekit::RpcInvocationData & invocation) { return listTopics(invocation); }) &&
                    all_registered;
   all_registered = connection.registerRpc(
-                     protocol::kTopicCurrentMethod,
+                     protocol::kTopicEchoOnceMethod,
                      [this](const livekit::RpcInvocationData & invocation) { return requestCurrent(invocation); }) &&
                    all_registered;
 
@@ -291,7 +291,7 @@ std::optional<std::string> RpcRouter::listTopics(const livekit::RpcInvocationDat
 
 std::optional<std::string> RpcRouter::requestCurrent(const livekit::RpcInvocationData & invocation)
 {
-  return withCallerIdentity(protocol::kTopicCurrentMethod, invocation, [this, &invocation]() {
+  return withCallerIdentity(protocol::kTopicEchoOnceMethod, invocation, [this, &invocation]() {
     // Parse rejects an unsupported `kind` and malformed payloads as validation errors.
     auto request = protocol::current_value::parse(invocation.payload);
 
@@ -299,7 +299,7 @@ std::optional<std::string> RpcRouter::requestCurrent(const livekit::RpcInvocatio
     // checked on every call — never inferred from "they already have a subscription/cache".
     if (!policy_.allows(AccessOperation::Subscribe, request.name)) {
       LogEvent(kLogger, "rpc_request_rejected")
-        .field("method", protocol::kTopicCurrentMethod)
+        .field("method", protocol::kTopicEchoOnceMethod)
         .fieldOr("request_id", invocation.request_id)
         .fieldOr("requester_identity", invocation.caller_identity)
         .field("reason", "forbidden")

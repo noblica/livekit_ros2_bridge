@@ -93,19 +93,19 @@ public:
 
     void setLatched(bool latched)
     {
-      std::lock_guard<std::mutex> lock(throttle_mutex_);
+      std::lock_guard<std::mutex> lock(state_mutex_);
       is_latched_ = latched;
     }
 
     void setIntervalMs(int interval_ms)
     {
-      std::lock_guard<std::mutex> lock(throttle_mutex_);
+      std::lock_guard<std::mutex> lock(state_mutex_);
       interval_ms_ = interval_ms;
     }
 
     std::shared_ptr<const std::vector<std::uint8_t>> cachedCdr() const
     {
-      std::lock_guard<std::mutex> lock(throttle_mutex_);
+      std::lock_guard<std::mutex> lock(state_mutex_);
       return cached_cdr_;
     }
 
@@ -114,7 +114,7 @@ public:
       const auto & cdr = message.get_rcl_serialized_message();
 
       {
-        std::lock_guard<std::mutex> lock(throttle_mutex_);
+        std::lock_guard<std::mutex> lock(state_mutex_);
 
         if (is_latched_) {
           // Build the buffer once and share it immutably; current-value reads and the byte-stream
@@ -171,7 +171,7 @@ public:
     std::string track_name_;
     std::shared_ptr<livekit::LocalDataTrack> track_;
 
-    mutable std::mutex throttle_mutex_;
+    mutable std::mutex state_mutex_;
     int interval_ms_ = 0;
     std::optional<std::chrono::steady_clock::time_point> last_push_at_;
     bool is_latched_ = false;

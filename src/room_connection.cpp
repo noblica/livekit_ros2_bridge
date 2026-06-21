@@ -39,7 +39,6 @@
 #include "livekit/video_source.h"
 #include "protocol/constants.hpp"
 #include "rclcpp/logging.hpp"
-#include "utils/concurrency_limiter.hpp"
 #include "utils/log_event.hpp"
 
 namespace livekit_ros2_bridge
@@ -50,13 +49,6 @@ namespace
 
 const auto kLogger = rclcpp::get_logger("livekit_ros2_bridge.room_connection");
 constexpr char kLocalParticipantUnavailable[] = "LiveKit local participant unavailable.";
-
-// Caps concurrent byte-stream sends per destination identity. Each send holds a
-// detached thread parked on an uncancellable SDK write(), so without a bound a
-// client looping current-value requests against a slow reader could spawn
-// threads without limit. Matches RosServiceCaller's kMaxInflightPerRequester.
-constexpr int kMaxConcurrentSendsPerIdentity = 4;
-constexpr char kByteStreamSendLimitReached[] = "Byte-stream send limit reached for destination identity.";
 
 struct ParticipantRef
 {
@@ -315,20 +307,6 @@ public:
       throw std::runtime_error(kLocalParticipantUnavailable);
     }
 
-    // Bound concurrent sends per identity before spawning a thread. At the cap we throw; the caller
-    // (SubscriptionLeaseManager::dispatchCurrentValue) maps a synchronous throw to a `none` result,
-    // so the client simply retries on its next poll. The reservation is moved into the send thread
-    // below and releases its slot when that thread exits, on success or failure.
-    auto reservation = byte_stream_send_limiter_.tryReserve(destination_identity);
-    if (!reservation.has_value()) {
-      LogEvent(kLogger, "byte_stream_send_rejected")
-        .field("topic", topic)
-        .field("destination_identity", destination_identity)
-        .field("reason", "send_limit_reached")
-        .warn();
-      throw std::runtime_error(kByteStreamSendLimitReached);
-    }
-
     // STOPGAP — converge with the broader uncancellable-blocking-.get() sweep.
     //
     // livekit::ByteStreamWriter::write() sends each chunk through an uncancellable blocking SDK
@@ -337,15 +315,12 @@ public:
     // LiveKit callback thread would therefore freeze live data relay, heartbeats, and every other
     // ROS callback. So the whole construct + write() + close() runs on a *detached, sacrificial*
     // thread that holds a strong reference to the room (keeping the local participant alive for the
-    // transfer). A hung client wedges a sacrificial thread instead of a load-bearing one, and the
-    // per-identity reservation above caps how many such threads any one client can hold at once. The
-    // payload is captured by value because the caller's buffer does not outlive this async send.
+    // transfer). A hung client wedges a sacrificial thread instead of a load-bearing one.
     //
     // This is a deliberately localized fix; it must merge into the systemic blocking-call sweep so
     // both land on one policy. Do not move write()/close() back onto a caller thread.
     std::thread(
-      [room = ref.room, topic, name, content_type, payload, destination_identity,
-       reservation = std::move(*reservation)]() {
+      [room = ref.room, topic, name, content_type, payload, destination_identity]() {
         // Backstop the whole body: the ByteStreamWriter constructor and the success-path close()
         // below are uncancellable FFI calls that throw (per the SDK header) on transfer errors and
         // teardown races. An exception escaping a detached thread calls std::terminate() and aborts
@@ -362,13 +337,13 @@ public:
 
           livekit::ByteStreamWriter writer(
             *participant,
-            /*name=*/name,
-            /*topic=*/topic,
-            /*attributes=*/{},
-            /*stream_id=*/"",
-            /*total_size=*/payload->size(),
-            /*mime_type=*/content_type,
-            /*destination_identities=*/{destination_identity});
+            name,
+            topic,
+            {},
+            "",
+            payload->size(),
+            content_type,
+            {destination_identity});
           try {
             writer.write(*payload);
           } catch (const std::exception & exc) {
@@ -387,17 +362,11 @@ public:
             return;
           }
           writer.close();
-        } catch (const std::exception & exc) {
-          LogEvent(kLogger, "byte_stream_send_failed")
-            .field("topic", topic)
-            .field("destination_identity", destination_identity)
-            .field("error", exc.what())
-            .warn();
         } catch (...) {
           LogEvent(kLogger, "byte_stream_send_failed")
             .field("topic", topic)
             .field("destination_identity", destination_identity)
-            .field("error", "unknown exception")
+            .fieldException("error", std::current_exception())
             .warn();
         }
       })
@@ -754,9 +723,6 @@ private:
   std::unordered_map<std::string, livekit::LocalParticipant::RpcHandler> rpc_handlers_;
   // Guards video unpublish against tracks published by an older room.
   std::unordered_map<const livekit::LocalVideoTrack *, std::uint64_t> track_room_generations_;
-
-  // Bounds concurrent byte-stream send threads per destination identity.
-  PerKeyConcurrencyLimiter byte_stream_send_limiter_{kMaxConcurrentSendsPerIdentity};
 
   bool stop_requested_ = false;
   bool sdk_initialized_ = false;

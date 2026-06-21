@@ -353,7 +353,7 @@ CurrentValueResult SubscriptionLeaseManager::dispatchCurrentValue(
     // is logged inside the sender, not surfaced here. We report Sent the moment the cached bytes are
     // handed off. `name` carries the resolved ROS topic so the client's one handler can route it.
     room_connection_.sendByteStream(
-      protocol::kCurrentValueTopic,
+      protocol::kEchoOnceTopic,
       /*name=*/snapshot->name,
       protocol::kCdrContentType,
       snapshot->cdr,
