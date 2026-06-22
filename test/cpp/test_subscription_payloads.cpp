@@ -525,5 +525,56 @@ TEST(SubscriptionPayloadsTest, SerializeSubscriptionStatusesSerializesMixedStatu
     expected);
 }
 
+TEST(SubscriptionPayloadsTest, SerializeSubscriptionStatusIncludesLatchedFieldOnlyWhenTrue)
+{
+  auto latched_topic = makeStatus(
+    SubscriptionTargetKind::Topic,
+    "/route_manager/active_route_graph",
+    SubscriptionDeliveryKind::Data,
+    "lkros.data.route_manager.active_route_graph");
+  latched_topic.latched = true;
+
+  auto volatile_topic = makeStatus(
+    SubscriptionTargetKind::Topic, "/battery_state", SubscriptionDeliveryKind::Data, "lkros.data.battery_state");
+  volatile_topic.latched = false;
+
+  nlohmann::json expected = {
+    {"v", protocol::kProtocolVersion},
+    {"type", protocol::kStatusTopic},
+    {"subscriptions", nlohmann::json::array()},
+  };
+  expected["subscriptions"].push_back({
+    {"kind", "topic"},
+    {"name", "/route_manager/active_route_graph"},
+    {"status", "active"},
+    {"latched", true},
+    {"delivery",
+     {{"kind", "data"},
+      {"track_name", "lkros.data.route_manager.active_route_graph"},
+      {"content_type", "application/x-ros-cdr"},
+      {"interval_ms", 0}}},
+  });
+  expected["subscriptions"].push_back({
+    {"kind", "topic"},
+    {"name", "/battery_state"},
+    {"status", "active"},
+    {"delivery",
+     {{"kind", "data"},
+      {"track_name", "lkros.data.battery_state"},
+      {"content_type", "application/x-ros-cdr"},
+      {"interval_ms", 0}}},
+  });
+
+  EXPECT_EQ(
+    statusBody(
+      std::vector<SubscriptionStatusEntry>{
+        SubscriptionStatusEntry{latched_topic},
+        SubscriptionStatusEntry{volatile_topic},
+      },
+      std::nullopt,
+      std::nullopt),
+    expected);
+}
+
 }  // namespace
 }  // namespace livekit_ros2_bridge

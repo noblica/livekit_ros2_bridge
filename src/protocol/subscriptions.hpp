@@ -57,6 +57,9 @@ struct SubscriptionStatus
   std::string degradation_reason;
   std::string interface_type;
 
+  // True when the ROS publisher uses TransientLocal durability (latched topic).
+  bool latched = false;
+
   // Applied data interval; ignored for video delivery.
   int interval_ms = 0;
   SubscriptionDeliveryKind delivery = SubscriptionDeliveryKind::Data;

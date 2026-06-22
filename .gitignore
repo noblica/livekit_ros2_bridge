@@ -26,3 +26,8 @@ livekit_ros2_bridge/parameters.py
 
 # Local bridge config
 livekit_bridge.params.yaml
+livekit_bridge.*.params.yaml
+
+# Local credentials and tokens
+.bridge.env
+.bridge_token

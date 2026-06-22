@@ -70,6 +70,8 @@ public:
 
   const std::string & trackName() const;
 
+  bool isLatched() const;
+
   // Returns the cached last message for latched topics, or nullopt if the topic is volatile,
   // not yet subscribed, or no message has arrived yet.
   std::optional<LatchedSnapshot> latchedSnapshot() const;

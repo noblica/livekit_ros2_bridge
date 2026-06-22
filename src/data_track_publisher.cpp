@@ -103,6 +103,12 @@ public:
       interval_ms_ = interval_ms;
     }
 
+    bool isLatched() const
+    {
+      std::lock_guard<std::mutex> lock(state_mutex_);
+      return is_latched_;
+    }
+
     std::shared_ptr<const std::vector<std::uint8_t>> cachedCdr() const
     {
       std::lock_guard<std::mutex> lock(state_mutex_);
@@ -227,6 +233,11 @@ public:
     state_->setIntervalMs(interval_ms);
   }
 
+  bool isLatched() const
+  {
+    return state_->isLatched();
+  }
+
   std::shared_ptr<const std::vector<std::uint8_t>> cachedCdr() const
   {
     return state_->cachedCdr();
@@ -322,6 +333,14 @@ int DataTrackPublisher::intervalMs() const
 bool DataTrackPublisher::isPublished() const
 {
   return publication_ != nullptr;
+}
+
+bool DataTrackPublisher::isLatched() const
+{
+  if (publication_ == nullptr) {
+    return false;
+  }
+  return publication_->isLatched();
 }
 
 void DataTrackPublisher::setIntervalMs(int interval_ms)

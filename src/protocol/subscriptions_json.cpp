@@ -166,6 +166,9 @@ nlohmann::json serialize(const SubscriptionStatus & status)
   if (!status.interface_type.empty()) {
     body["interface_type"] = status.interface_type;
   }
+  if (status.latched) {
+    body["latched"] = true;
+  }
 
   const char * delivery_kind = nullptr;
   switch (status.delivery) {
