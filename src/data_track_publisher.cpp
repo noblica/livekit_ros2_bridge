@@ -97,6 +97,11 @@ public:
       is_latched_ = latched;
     }
 
+    void setReliabilityPolicy(rclcpp::ReliabilityPolicy policy)
+    {
+      reliability_policy_ = policy;
+    }
+
     void setIntervalMs(int interval_ms)
     {
       std::lock_guard<std::mutex> lock(state_mutex_);
@@ -107,6 +112,11 @@ public:
     {
       std::lock_guard<std::mutex> lock(state_mutex_);
       return is_latched_;
+    }
+
+    rclcpp::ReliabilityPolicy reliabilityPolicy() const
+    {
+      return reliability_policy_;
     }
 
     std::shared_ptr<const std::vector<std::uint8_t>> cachedCdr() const
@@ -181,6 +191,7 @@ public:
     int interval_ms_ = 0;
     std::optional<std::chrono::steady_clock::time_point> last_push_at_;
     bool is_latched_ = false;
+    rclcpp::ReliabilityPolicy reliability_policy_ = rclcpp::ReliabilityPolicy::Reliable;
     std::shared_ptr<const std::vector<std::uint8_t>> cached_cdr_;
   };
 
@@ -238,6 +249,11 @@ public:
     return state_->isLatched();
   }
 
+  rclcpp::ReliabilityPolicy reliabilityPolicy() const
+  {
+    return state_->reliabilityPolicy();
+  }
+
   std::shared_ptr<const std::vector<std::uint8_t>> cachedCdr() const
   {
     return state_->cachedCdr();
@@ -264,6 +280,7 @@ private:
     }
 
     state_->setLatched(qos.qos.durability() == rclcpp::DurabilityPolicy::TransientLocal);
+    state_->setReliabilityPolicy(qos.qos.reliability());
 
     subscription_ = rclcpp::create_generic_subscription(
       topics_,
@@ -341,6 +358,17 @@ bool DataTrackPublisher::isLatched() const
     return false;
   }
   return publication_->isLatched();
+}
+
+SubscriptionQosSummary DataTrackPublisher::qosSummary() const
+{
+  const bool is_latched = publication_ != nullptr && publication_->isLatched();
+  const rclcpp::ReliabilityPolicy reliability =
+    publication_ != nullptr ? publication_->reliabilityPolicy() : rclcpp::ReliabilityPolicy::Reliable;
+  return SubscriptionQosSummary{
+    is_latched ? "transient_local" : "volatile",
+    reliability == rclcpp::ReliabilityPolicy::BestEffort ? "best_effort" : "reliable",
+  };
 }
 
 void DataTrackPublisher::setIntervalMs(int interval_ms)

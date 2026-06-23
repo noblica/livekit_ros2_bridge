@@ -525,18 +525,21 @@ TEST(SubscriptionPayloadsTest, SerializeSubscriptionStatusesSerializesMixedStatu
     expected);
 }
 
-TEST(SubscriptionPayloadsTest, SerializeSubscriptionStatusIncludesLatchedFieldOnlyWhenTrue)
+TEST(SubscriptionPayloadsTest, SerializeSubscriptionStatusIncludesQosSummaryForDataTopics)
 {
-  auto latched_topic = makeStatus(
+  auto transient_local_topic = makeStatus(
     SubscriptionTargetKind::Topic,
     "/route_manager/active_route_graph",
     SubscriptionDeliveryKind::Data,
     "lkros.data.route_manager.active_route_graph");
-  latched_topic.latched = true;
+  transient_local_topic.qos_summary = SubscriptionQosSummary{"transient_local", "reliable"};
 
-  auto volatile_topic = makeStatus(
+  auto volatile_best_effort_topic = makeStatus(
     SubscriptionTargetKind::Topic, "/battery_state", SubscriptionDeliveryKind::Data, "lkros.data.battery_state");
-  volatile_topic.latched = false;
+  volatile_best_effort_topic.qos_summary = SubscriptionQosSummary{"volatile", "best_effort"};
+
+  auto no_qos_topic = makeStatus(
+    SubscriptionTargetKind::Topic, "/video_stream", SubscriptionDeliveryKind::Video, "lkros.video.camera");
 
   nlohmann::json expected = {
     {"v", protocol::kProtocolVersion},
@@ -547,7 +550,7 @@ TEST(SubscriptionPayloadsTest, SerializeSubscriptionStatusIncludesLatchedFieldOn
     {"kind", "topic"},
     {"name", "/route_manager/active_route_graph"},
     {"status", "active"},
-    {"latched", true},
+    {"qos", {{"durability", "transient_local"}, {"reliability", "reliable"}}},
     {"delivery",
      {{"kind", "data"},
       {"track_name", "lkros.data.route_manager.active_route_graph"},
@@ -558,18 +561,26 @@ TEST(SubscriptionPayloadsTest, SerializeSubscriptionStatusIncludesLatchedFieldOn
     {"kind", "topic"},
     {"name", "/battery_state"},
     {"status", "active"},
+    {"qos", {{"durability", "volatile"}, {"reliability", "best_effort"}}},
     {"delivery",
      {{"kind", "data"},
       {"track_name", "lkros.data.battery_state"},
       {"content_type", "application/x-ros-cdr"},
       {"interval_ms", 0}}},
   });
+  expected["subscriptions"].push_back({
+    {"kind", "topic"},
+    {"name", "/video_stream"},
+    {"status", "active"},
+    {"delivery", {{"kind", "video"}, {"track_name", "lkros.video.camera"}}},
+  });
 
   EXPECT_EQ(
     statusBody(
       std::vector<SubscriptionStatusEntry>{
-        SubscriptionStatusEntry{latched_topic},
-        SubscriptionStatusEntry{volatile_topic},
+        SubscriptionStatusEntry{transient_local_topic},
+        SubscriptionStatusEntry{volatile_best_effort_topic},
+        SubscriptionStatusEntry{no_qos_topic},
       },
       std::nullopt,
       std::nullopt),

@@ -531,7 +531,7 @@ SubscriptionStatus SubscriptionLeaseManager::status(const Subscription & subscri
         status.track_name = publisher.trackName();
       }
       status.interval_ms = publisher.intervalMs();
-      status.latched = publisher.isLatched();
+      status.qos_summary = publisher.qosSummary();
     }
 
     void operator()(const VideoPublisher & publisher) const

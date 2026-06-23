@@ -49,6 +49,12 @@ enum class SubscriptionDeliveryKind
   Video,
 };
 
+struct SubscriptionQosSummary
+{
+  std::string durability;   // "volatile" | "transient_local"
+  std::string reliability;  // "reliable" | "best_effort"
+};
+
 struct SubscriptionStatus
 {
   SubscriptionTargetKind kind = SubscriptionTargetKind::Topic;
@@ -57,8 +63,7 @@ struct SubscriptionStatus
   std::string degradation_reason;
   std::string interface_type;
 
-  // True when the ROS publisher uses TransientLocal durability (latched topic).
-  bool latched = false;
+  std::optional<SubscriptionQosSummary> qos_summary;
 
   // Applied data interval; ignored for video delivery.
   int interval_ms = 0;

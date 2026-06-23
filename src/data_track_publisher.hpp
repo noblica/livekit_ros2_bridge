@@ -24,6 +24,8 @@
 #include "rclcpp/node_interfaces/node_graph_interface.hpp"
 #include "rclcpp/node_interfaces/node_topics_interface.hpp"
 
+#include "protocol/subscriptions.hpp"
+
 namespace livekit_ros2_bridge
 {
 
@@ -71,6 +73,7 @@ public:
   const std::string & trackName() const;
 
   bool isLatched() const;
+  SubscriptionQosSummary qosSummary() const;
 
   // Returns the cached last message for latched topics, or nullopt if the topic is volatile,
   // not yet subscribed, or no message has arrived yet.
