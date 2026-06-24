@@ -166,10 +166,9 @@ nlohmann::json serialize(const SubscriptionStatus & status)
   if (!status.interface_type.empty()) {
     body["interface_type"] = status.interface_type;
   }
-  if (status.qos_summary) {
+  if (status.qos) {
     body["qos"] = {
-      {"durability", status.qos_summary->durability},
-      {"reliability", status.qos_summary->reliability},
+      {"durability", status.qos->durability},
     };
   }
 

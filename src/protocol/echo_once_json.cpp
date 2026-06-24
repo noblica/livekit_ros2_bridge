@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "protocol/current_value_json.hpp"
+#include "protocol/echo_once_json.hpp"
 
 #include <exception>
 #include <stdexcept>
@@ -23,7 +23,7 @@
 #include "rclcpp/expand_topic_or_service_name.hpp"
 #include "utils/trim.hpp"
 
-namespace livekit_ros2_bridge::protocol::current_value
+namespace livekit_ros2_bridge::protocol::echo_once
 {
 
 using Json = nlohmann::json;
@@ -40,32 +40,32 @@ constexpr char kTopicExpansionNamespace[] = "/";
 
 }  // namespace
 
-CurrentValueRequest parse(const std::string & payload)
+EchoOnceRequest parse(const std::string & payload)
 {
   Json body;
   try {
     body = detail::parseObject(
-      payload, "Invalid JSON in current-value request", "Current-value request must be a JSON object");
+      payload, "Invalid JSON in echo-once request", "Echo-once request must be a JSON object");
   } catch (const std::invalid_argument & exc) {
     throw ValidationError(kPayloadField, exc.what());
   }
 
-  CurrentValueRequest request;
+  EchoOnceRequest request;
 
   const auto kind_field = body.find(kKindField);
   if (kind_field == body.end() || !kind_field->is_string()) {
-    throw ValidationError(kKindField, "current-value 'kind' must be a string");
+    throw ValidationError(kKindField, "echo-once 'kind' must be a string");
   }
   // Only "topic" is implemented; reject every other (including future) kind explicitly so the
   // caller learns immediately rather than receiving a silent `none`.
   if (trim(kind_field->get_ref<const std::string &>()) != "topic") {
-    throw ValidationError(kKindField, "current-value 'kind' must be 'topic'");
+    throw ValidationError(kKindField, "echo-once 'kind' must be 'topic'");
   }
   request.kind = SubscriptionTargetKind::Topic;
 
   const auto name_field = body.find(kNameField);
   if (name_field == body.end() || !name_field->is_string()) {
-    throw ValidationError(kNameField, "current-value 'name' must be a string");
+    throw ValidationError(kNameField, "echo-once 'name' must be a string");
   }
   try {
     request.name = rclcpp::expand_topic_or_service_name(
@@ -77,15 +77,15 @@ CurrentValueRequest parse(const std::string & payload)
   return request;
 }
 
-std::string serialize(CurrentValueResult result)
+std::string serialize(EchoOnceResult result)
 {
   switch (result) {
-    case CurrentValueResult::Sent:
+    case EchoOnceResult::Sent:
       return Json{{kResultField, "sent"}}.dump();
-    case CurrentValueResult::None:
+    case EchoOnceResult::None:
       return Json{{kResultField, "none"}}.dump();
   }
-  throw std::invalid_argument("current-value result is invalid");
+  throw std::invalid_argument("echo-once result is invalid");
 }
 
-}  // namespace livekit_ros2_bridge::protocol::current_value
+}  // namespace livekit_ros2_bridge::protocol::echo_once

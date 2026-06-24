@@ -17,7 +17,7 @@
 
 #include "gtest/gtest.h"
 #include "nlohmann/json.hpp"
-#include "protocol/current_value_json.hpp"
+#include "protocol/echo_once_json.hpp"
 #include "protocol/validation_error.hpp"
 #include "protocol_test_support.hpp"
 
@@ -28,9 +28,9 @@ namespace
 
 using test_support::expectInvalidArgument;
 
-CurrentValueRequest parsePayload(const std::string & payload)
+EchoOnceRequest parsePayload(const std::string & payload)
 {
-  return protocol::current_value::parse(payload);
+  return protocol::echo_once::parse(payload);
 }
 
 void expectParseError(const std::string & payload, const char * expected_message, const char * expected_field)
@@ -38,49 +38,49 @@ void expectParseError(const std::string & payload, const char * expected_message
   expectInvalidArgument([&payload]() { (void)parsePayload(payload); }, expected_message, expected_field);
 }
 
-TEST(CurrentValuePayloadsTest, ParseAcceptsTopicKindAndExpandsName)
+TEST(EchoOncePayloadsTest, ParseAcceptsTopicKindAndExpandsName)
 {
   const auto request = parsePayload(R"({"kind":"topic","name":"/map"})");
   EXPECT_EQ(request.kind, SubscriptionTargetKind::Topic);
   EXPECT_EQ(request.name, "/map");
 }
 
-TEST(CurrentValuePayloadsTest, ParseExpandsRelativeTopicNameToGlobal)
+TEST(EchoOncePayloadsTest, ParseExpandsRelativeTopicNameToGlobal)
 {
   const auto request = parsePayload(R"({"kind":"topic","name":"map"})");
   EXPECT_EQ(request.name, "/map");
 }
 
-TEST(CurrentValuePayloadsTest, ParseTrimsKindAndName)
+TEST(EchoOncePayloadsTest, ParseTrimsKindAndName)
 {
   const auto request = parsePayload(R"({"kind":"  topic  ","name":"  /map  "})");
   EXPECT_EQ(request.kind, SubscriptionTargetKind::Topic);
   EXPECT_EQ(request.name, "/map");
 }
 
-TEST(CurrentValuePayloadsTest, ParseRejectsUnsupportedKind)
+TEST(EchoOncePayloadsTest, ParseRejectsUnsupportedKind)
 {
-  // `other_video` is a valid subscription kind but is not supported by the current-value primitive;
+  // `other_video` is a valid subscription kind but is not supported by the echo-once primitive;
   // it must fail loudly rather than silently returning `none`.
   expectParseError(
-    R"({"kind":"other_video","name":"/map"})", "current-value 'kind' must be 'topic'", "kind");
+    R"({"kind":"other_video","name":"/map"})", "echo-once 'kind' must be 'topic'", "kind");
   expectParseError(
-    R"({"kind":"future_kind","name":"/map"})", "current-value 'kind' must be 'topic'", "kind");
+    R"({"kind":"future_kind","name":"/map"})", "echo-once 'kind' must be 'topic'", "kind");
 }
 
-TEST(CurrentValuePayloadsTest, ParseRejectsMissingOrNonStringKind)
+TEST(EchoOncePayloadsTest, ParseRejectsMissingOrNonStringKind)
 {
-  expectParseError(R"({"name":"/map"})", "current-value 'kind' must be a string", "kind");
-  expectParseError(R"({"kind":1,"name":"/map"})", "current-value 'kind' must be a string", "kind");
+  expectParseError(R"({"name":"/map"})", "echo-once 'kind' must be a string", "kind");
+  expectParseError(R"({"kind":1,"name":"/map"})", "echo-once 'kind' must be a string", "kind");
 }
 
-TEST(CurrentValuePayloadsTest, ParseRejectsMissingOrNonStringName)
+TEST(EchoOncePayloadsTest, ParseRejectsMissingOrNonStringName)
 {
-  expectParseError(R"({"kind":"topic"})", "current-value 'name' must be a string", "name");
-  expectParseError(R"({"kind":"topic","name":42})", "current-value 'name' must be a string", "name");
+  expectParseError(R"({"kind":"topic"})", "echo-once 'name' must be a string", "name");
+  expectParseError(R"({"kind":"topic","name":42})", "echo-once 'name' must be a string", "name");
 }
 
-TEST(CurrentValuePayloadsTest, ParseRejectsInvalidTopicNameAsNameValidationError)
+TEST(EchoOncePayloadsTest, ParseRejectsInvalidTopicNameAsNameValidationError)
 {
   try {
     (void)parsePayload(R"({"kind":"topic","name":"bad name with spaces"})");
@@ -90,25 +90,25 @@ TEST(CurrentValuePayloadsTest, ParseRejectsInvalidTopicNameAsNameValidationError
   }
 }
 
-TEST(CurrentValuePayloadsTest, ParseRejectsMalformedJsonAsPayloadError)
+TEST(EchoOncePayloadsTest, ParseRejectsMalformedJsonAsPayloadError)
 {
-  expectParseError("not json", "Invalid JSON in current-value request", "payload");
+  expectParseError("not json", "Invalid JSON in echo-once request", "payload");
 }
 
-TEST(CurrentValuePayloadsTest, ParseRejectsNonObjectPayload)
+TEST(EchoOncePayloadsTest, ParseRejectsNonObjectPayload)
 {
-  expectParseError(R"(["topic","/map"])", "Current-value request must be a JSON object", "payload");
+  expectParseError(R"(["topic","/map"])", "Echo-once request must be a JSON object", "payload");
 }
 
-TEST(CurrentValuePayloadsTest, SerializeEmitsSent)
+TEST(EchoOncePayloadsTest, SerializeEmitsSent)
 {
-  const auto body = nlohmann::json::parse(protocol::current_value::serialize(CurrentValueResult::Sent));
+  const auto body = nlohmann::json::parse(protocol::echo_once::serialize(EchoOnceResult::Sent));
   EXPECT_EQ(body, (nlohmann::json{{"result", "sent"}}));
 }
 
-TEST(CurrentValuePayloadsTest, SerializeEmitsNone)
+TEST(EchoOncePayloadsTest, SerializeEmitsNone)
 {
-  const auto body = nlohmann::json::parse(protocol::current_value::serialize(CurrentValueResult::None));
+  const auto body = nlohmann::json::parse(protocol::echo_once::serialize(EchoOnceResult::None));
   EXPECT_EQ(body, (nlohmann::json{{"result", "none"}}));
 }
 

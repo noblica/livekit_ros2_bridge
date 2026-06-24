@@ -21,9 +21,9 @@
 namespace livekit_ros2_bridge
 {
 
-// "Request the current value of a topic" — the generic, client-triggered primitive behind the
+// "Request a topic's last message" — the generic, client-triggered primitive behind the
 // ros2.topic.echo.once RPC.
-struct CurrentValueRequest
+struct EchoOnceRequest
 {
   // Reuses the subscription target-kind discriminant so the primitive can grow new kinds later
   // without a protocol break. Only Topic is implemented today; any other kind is a validation error.
@@ -31,15 +31,15 @@ struct CurrentValueRequest
   std::string name;
 };
 
-// Outcome of a current-value request.
+// Outcome of an echo-once request.
 //
 // `None` deliberately collapses two cases the bridge does NOT distinguish:
-//   - the topic has no cached value *yet* — a latched sample may be redelivered to the bridge's
+//   - the topic has no cached value *yet* — the last message may be redelivered to the bridge's
 //     subscription moments later (a retry would then succeed), and
 //   - the topic will *never* have a cached value — it is volatile, video, or otherwise not cached.
 // The client handles both identically: retry a few times, then stop. Disambiguating them on the
 // bridge would buy nothing and require per-topic bookkeeping the bridge intentionally avoids.
-enum class CurrentValueResult
+enum class EchoOnceResult
 {
   Sent,
   None,

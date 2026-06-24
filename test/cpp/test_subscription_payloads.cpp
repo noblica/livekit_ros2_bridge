@@ -525,18 +525,18 @@ TEST(SubscriptionPayloadsTest, SerializeSubscriptionStatusesSerializesMixedStatu
     expected);
 }
 
-TEST(SubscriptionPayloadsTest, SerializeSubscriptionStatusIncludesQosSummaryForDataTopics)
+TEST(SubscriptionPayloadsTest, SerializeSubscriptionStatusIncludesQosForDataTopics)
 {
   auto transient_local_topic = makeStatus(
     SubscriptionTargetKind::Topic,
     "/route_manager/active_route_graph",
     SubscriptionDeliveryKind::Data,
     "lkros.data.route_manager.active_route_graph");
-  transient_local_topic.qos_summary = SubscriptionQosSummary{"transient_local", "reliable"};
+  transient_local_topic.qos = SubscriptionQos{"transient_local"};
 
-  auto volatile_best_effort_topic = makeStatus(
+  auto volatile_topic = makeStatus(
     SubscriptionTargetKind::Topic, "/battery_state", SubscriptionDeliveryKind::Data, "lkros.data.battery_state");
-  volatile_best_effort_topic.qos_summary = SubscriptionQosSummary{"volatile", "best_effort"};
+  volatile_topic.qos = SubscriptionQos{"volatile"};
 
   auto no_qos_topic = makeStatus(
     SubscriptionTargetKind::Topic, "/video_stream", SubscriptionDeliveryKind::Video, "lkros.video.camera");
@@ -550,7 +550,7 @@ TEST(SubscriptionPayloadsTest, SerializeSubscriptionStatusIncludesQosSummaryForD
     {"kind", "topic"},
     {"name", "/route_manager/active_route_graph"},
     {"status", "active"},
-    {"qos", {{"durability", "transient_local"}, {"reliability", "reliable"}}},
+    {"qos", {{"durability", "transient_local"}}},
     {"delivery",
      {{"kind", "data"},
       {"track_name", "lkros.data.route_manager.active_route_graph"},
@@ -561,7 +561,7 @@ TEST(SubscriptionPayloadsTest, SerializeSubscriptionStatusIncludesQosSummaryForD
     {"kind", "topic"},
     {"name", "/battery_state"},
     {"status", "active"},
-    {"qos", {{"durability", "volatile"}, {"reliability", "best_effort"}}},
+    {"qos", {{"durability", "volatile"}}},
     {"delivery",
      {{"kind", "data"},
       {"track_name", "lkros.data.battery_state"},
@@ -579,7 +579,7 @@ TEST(SubscriptionPayloadsTest, SerializeSubscriptionStatusIncludesQosSummaryForD
     statusBody(
       std::vector<SubscriptionStatusEntry>{
         SubscriptionStatusEntry{transient_local_topic},
-        SubscriptionStatusEntry{volatile_best_effort_topic},
+        SubscriptionStatusEntry{volatile_topic},
         SubscriptionStatusEntry{no_qos_topic},
       },
       std::nullopt,

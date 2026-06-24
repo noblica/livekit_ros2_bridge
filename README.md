@@ -103,7 +103,7 @@ Supported today:
 - video subscriptions
 - small ROS topic publications into ROS 2
 - other video sources
-- opt-in replay of a latched topic's last message for late-joining clients
+- opt-in replay of a transient_local topic's last message for late-joining clients
 
 Not supported today:
 

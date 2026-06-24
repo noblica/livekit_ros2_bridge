@@ -316,7 +316,7 @@ TEST(DataTrackPublisherTest, DestructionUnpublishesPublishedTrackAndDropsSubscri
   EXPECT_EQ(room_connection.state->pushed_data_track_frames.size(), 1U);
 }
 
-TEST(DataTrackPublisherTest, LatchedSnapshotAbsentBeforePublish)
+TEST(DataTrackPublisherTest, CachedMessageAbsentBeforePublish)
 {
   ScopedRclcppInit init;
   auto node = std::make_shared<rclcpp::Node>("data_track_publisher_snapshot_before_publish_test");
@@ -324,10 +324,10 @@ TEST(DataTrackPublisherTest, LatchedSnapshotAbsentBeforePublish)
   const std::string topic = "/battery/snapshot_before_publish";
 
   auto track_publisher = createDataTrackPublisher(*node, room_connection, topic);
-  EXPECT_FALSE(track_publisher->latchedSnapshot().has_value());
+  EXPECT_FALSE(track_publisher->cachedMessage().has_value());
 }
 
-TEST(DataTrackPublisherTest, LatchedSnapshotAbsentForVolatileTopic)
+TEST(DataTrackPublisherTest, CachedMessageAbsentForVolatileTopic)
 {
   ScopedRclcppInit init;
   auto node = std::make_shared<rclcpp::Node>("data_track_publisher_volatile_snapshot_test");
@@ -345,19 +345,19 @@ TEST(DataTrackPublisherTest, LatchedSnapshotAbsentForVolatileTopic)
 
   ASSERT_TRUE(publishUntilFrameCount(executor, publisher, message, room_connection, 1U));
 
-  EXPECT_FALSE(track_publisher->latchedSnapshot().has_value());
+  EXPECT_FALSE(track_publisher->cachedMessage().has_value());
 }
 
-TEST(DataTrackPublisherTest, LatchedSnapshotPopulatedForLatchedTopic)
+TEST(DataTrackPublisherTest, CachedMessagePopulatedForTransientLocalTopic)
 {
   ScopedRclcppInit init;
-  auto node = std::make_shared<rclcpp::Node>("data_track_publisher_latched_snapshot_test");
+  auto node = std::make_shared<rclcpp::Node>("data_track_publisher_transient_local_snapshot_test");
   FakeRoomConnection room_connection;
-  const std::string topic = "/battery/latched_snapshot";
+  const std::string topic = "/battery/transient_local_snapshot";
 
-  rclcpp::QoS latched_qos(1);
-  latched_qos.transient_local();
-  auto publisher = node->create_publisher<sensor_msgs::msg::BatteryState>(topic, latched_qos);
+  rclcpp::QoS transient_local_qos(1);
+  transient_local_qos.transient_local();
+  auto publisher = node->create_publisher<sensor_msgs::msg::BatteryState>(topic, transient_local_qos);
 
   rclcpp::executors::SingleThreadedExecutor executor;
   executor.add_node(node);
@@ -368,26 +368,26 @@ TEST(DataTrackPublisherTest, LatchedSnapshotPopulatedForLatchedTopic)
   const auto message = makeBatteryState();
 
   ASSERT_TRUE(publishUntil(executor, publisher, message, [&]() {
-    return track_publisher->latchedSnapshot().has_value();
+    return track_publisher->cachedMessage().has_value();
   }));
 
-  const auto snapshot = track_publisher->latchedSnapshot();
+  const auto snapshot = track_publisher->cachedMessage();
   ASSERT_TRUE(snapshot.has_value());
   EXPECT_EQ(snapshot->name, topic);
   ASSERT_NE(snapshot->cdr, nullptr);
   EXPECT_FALSE(snapshot->cdr->empty());
 }
 
-TEST(DataTrackPublisherTest, ThrottledMessageStillUpdatesCacheForLatchedTopic)
+TEST(DataTrackPublisherTest, ThrottledMessageStillUpdatesCacheForTransientLocalTopic)
 {
   ScopedRclcppInit init;
-  auto node = std::make_shared<rclcpp::Node>("data_track_publisher_latched_throttle_cache_test");
+  auto node = std::make_shared<rclcpp::Node>("data_track_publisher_transient_local_throttle_cache_test");
   FakeRoomConnection room_connection;
-  const std::string topic = "/battery/latched_throttle_cache";
+  const std::string topic = "/battery/transient_local_throttle_cache";
 
-  rclcpp::QoS latched_qos(1);
-  latched_qos.transient_local();
-  auto publisher = node->create_publisher<sensor_msgs::msg::BatteryState>(topic, latched_qos);
+  rclcpp::QoS transient_local_qos(1);
+  transient_local_qos.transient_local();
+  auto publisher = node->create_publisher<sensor_msgs::msg::BatteryState>(topic, transient_local_qos);
 
   rclcpp::executors::SingleThreadedExecutor executor;
   executor.add_node(node);
@@ -401,11 +401,11 @@ TEST(DataTrackPublisherTest, ThrottledMessageStillUpdatesCacheForLatchedTopic)
   msg1.voltage = 12.0F;
 
   ASSERT_TRUE(publishUntil(executor, publisher, msg1, [&]() {
-    return track_publisher->latchedSnapshot().has_value() &&
+    return track_publisher->cachedMessage().has_value() &&
            room_connection.state->pushed_data_track_frames.size() == 1U;
   }));
 
-  const auto snapshot_after_msg1 = track_publisher->latchedSnapshot();
+  const auto snapshot_after_msg1 = track_publisher->cachedMessage();
   ASSERT_TRUE(snapshot_after_msg1.has_value());
 
   auto msg2 = makeBatteryState();
@@ -414,7 +414,7 @@ TEST(DataTrackPublisherTest, ThrottledMessageStillUpdatesCacheForLatchedTopic)
 
   EXPECT_EQ(room_connection.state->pushed_data_track_frames.size(), 1U);
 
-  const auto snapshot_after_msg2 = track_publisher->latchedSnapshot();
+  const auto snapshot_after_msg2 = track_publisher->cachedMessage();
   ASSERT_TRUE(snapshot_after_msg2.has_value());
   ASSERT_NE(snapshot_after_msg1->cdr, nullptr);
   ASSERT_NE(snapshot_after_msg2->cdr, nullptr);

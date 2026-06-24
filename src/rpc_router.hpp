@@ -65,7 +65,7 @@ private:
   std::optional<std::string> showInterfaces(const livekit::RpcInvocationData & invocation);
   std::optional<std::string> listServices(const livekit::RpcInvocationData & invocation);
   std::optional<std::string> listTopics(const livekit::RpcInvocationData & invocation);
-  std::optional<std::string> requestCurrent(const livekit::RpcInvocationData & invocation);
+  std::optional<std::string> requestEchoOnce(const livekit::RpcInvocationData & invocation);
 };
 
 }  // namespace livekit_ros2_bridge

@@ -16,16 +16,16 @@
 
 #include <string>
 
-#include "protocol/current_value.hpp"
+#include "protocol/echo_once.hpp"
 
-namespace livekit_ros2_bridge::protocol::current_value
+namespace livekit_ros2_bridge::protocol::echo_once
 {
 
-/// Parses a `{kind, name}` current-value request. Only `kind:"topic"` is supported; any other
+/// Parses a `{kind, name}` echo-once request. Only `kind:"topic"` is supported; any other
 /// (including future) kind is a validation error so unsupported requests fail loudly rather than
 /// returning a misleading `none`. Topic names are expanded with rclcpp grammar, like heartbeats.
-CurrentValueRequest parse(const std::string & payload);
+EchoOnceRequest parse(const std::string & payload);
 
-std::string serialize(CurrentValueResult result);
+std::string serialize(EchoOnceResult result);
 
-}  // namespace livekit_ros2_bridge::protocol::current_value
+}  // namespace livekit_ros2_bridge::protocol::echo_once

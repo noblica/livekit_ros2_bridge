@@ -326,7 +326,7 @@ void SubscriptionLeaseManager::appendDemandStatus(
   }
 }
 
-CurrentValueResult SubscriptionLeaseManager::dispatchCurrentValue(
+EchoOnceResult SubscriptionLeaseManager::dispatchEchoOnce(
   SubscriptionTargetKind kind, const std::string & name, const std::string & requester_identity)
 {
   // Key off the canonically resolved name, exactly as subscriptions are keyed, so a request finds
@@ -334,18 +334,18 @@ CurrentValueResult SubscriptionLeaseManager::dispatchCurrentValue(
   const auto topics = node_interfaces_.get_node_topics_interface();
   const auto it = subscriptions_.find(makeKey(kind, resolveName(*topics, kind, name)));
   if (it == subscriptions_.end()) {
-    return CurrentValueResult::None;
+    return EchoOnceResult::None;
   }
 
   // Only data deliveries carry a cache; video and other non-data runtimes never do.
   const auto * data_publisher_ptr = std::get_if<DataPublisher>(&it->second.runtime);
   if (data_publisher_ptr == nullptr) {
-    return CurrentValueResult::None;
+    return EchoOnceResult::None;
   }
 
-  const auto snapshot = (*data_publisher_ptr)->latchedSnapshot();
+  const auto snapshot = (*data_publisher_ptr)->cachedMessage();
   if (!snapshot.has_value()) {
-    return CurrentValueResult::None;
+    return EchoOnceResult::None;
   }
 
   try {
@@ -361,15 +361,15 @@ CurrentValueResult SubscriptionLeaseManager::dispatchCurrentValue(
   } catch (const std::exception & exc) {
     // The dispatch failed synchronously (e.g. the room dropped between lookup and send). Report None
     // so the client's retry loop tries again rather than assuming a delivery that never left.
-    LogEvent(kLogger, "current_value_send_failed")
+    LogEvent(kLogger, "echo_once_send_failed")
       .field("resource", snapshot->name)
       .field("requester_identity", requester_identity)
       .field("error", exc.what())
       .warnThrottle(*clock_, kLogThrottle);
-    return CurrentValueResult::None;
+    return EchoOnceResult::None;
   }
 
-  return CurrentValueResult::Sent;
+  return EchoOnceResult::Sent;
 }
 
 void SubscriptionLeaseManager::publishStatusReport(
@@ -531,7 +531,7 @@ SubscriptionStatus SubscriptionLeaseManager::status(const Subscription & subscri
         status.track_name = publisher.trackName();
       }
       status.interval_ms = publisher.intervalMs();
-      status.qos_summary = publisher.qosSummary();
+      status.qos = publisher.qos();
     }
 
     void operator()(const VideoPublisher & publisher) const

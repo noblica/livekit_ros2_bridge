@@ -29,7 +29,7 @@
 namespace livekit_ros2_bridge
 {
 
-struct LatchedSnapshot
+struct CachedMessage
 {
   // Resolved ROS topic name of the cached message.
   std::string name;
@@ -72,12 +72,12 @@ public:
 
   const std::string & trackName() const;
 
-  bool isLatched() const;
-  SubscriptionQosSummary qosSummary() const;
+  bool isTransientLocal() const;
+  SubscriptionQos qos() const;
 
-  // Returns the cached last message for latched topics, or nullopt if the topic is volatile,
+  // Returns the cached last message for transient_local topics, or nullopt if the topic is volatile,
   // not yet subscribed, or no message has arrived yet.
-  std::optional<LatchedSnapshot> latchedSnapshot() const;
+  std::optional<CachedMessage> cachedMessage() const;
 
 private:
   class Publication;

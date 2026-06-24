@@ -25,7 +25,7 @@
 
 #include "livekit/rpc_error.h"
 #include "protocol/constants.hpp"
-#include "protocol/current_value_json.hpp"
+#include "protocol/echo_once_json.hpp"
 #include "protocol/interfaces_json.hpp"
 #include "protocol/resources.hpp"
 #include "protocol/resources_json.hpp"
@@ -194,7 +194,7 @@ bool RpcRouter::registerRpcs(RoomConnection & connection)
                    all_registered;
   all_registered = connection.registerRpc(
                      protocol::kTopicEchoOnceMethod,
-                     [this](const livekit::RpcInvocationData & invocation) { return requestCurrent(invocation); }) &&
+                     [this](const livekit::RpcInvocationData & invocation) { return requestEchoOnce(invocation); }) &&
                    all_registered;
 
   return all_registered;
@@ -289,11 +289,11 @@ std::optional<std::string> RpcRouter::listTopics(const livekit::RpcInvocationDat
   });
 }
 
-std::optional<std::string> RpcRouter::requestCurrent(const livekit::RpcInvocationData & invocation)
+std::optional<std::string> RpcRouter::requestEchoOnce(const livekit::RpcInvocationData & invocation)
 {
   return withCallerIdentity(protocol::kTopicEchoOnceMethod, invocation, [this, &invocation]() {
     // Parse rejects an unsupported `kind` and malformed payloads as validation errors.
-    auto request = protocol::current_value::parse(invocation.payload);
+    auto request = protocol::echo_once::parse(invocation.payload);
 
     // Caches are shared per topic, so the *requesting* identity's Subscribe permission must be
     // checked on every call — never inferred from "they already have a subscription/cache".
@@ -313,9 +313,9 @@ std::optional<std::string> RpcRouter::requestCurrent(const livekit::RpcInvocatio
     // stream the dispatch may trigger is itself non-blocking, so the executor is never stuck on it.
     auto future = queue_.submit(
       [this, kind = request.kind, name = request.name, requester_identity = invocation.caller_identity]() {
-        return lease_manager_.dispatchCurrentValue(kind, name, requester_identity);
+        return lease_manager_.dispatchEchoOnce(kind, name, requester_identity);
       });
-    return protocol::current_value::serialize(future.get());
+    return protocol::echo_once::serialize(future.get());
   });
 }
 

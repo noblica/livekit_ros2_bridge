@@ -49,10 +49,9 @@ enum class SubscriptionDeliveryKind
   Video,
 };
 
-struct SubscriptionQosSummary
+struct SubscriptionQos
 {
-  std::string durability;   // "volatile" | "transient_local"
-  std::string reliability;  // "reliable" | "best_effort"
+  std::string durability;  // "volatile" | "transient_local"
 };
 
 struct SubscriptionStatus
@@ -63,7 +62,7 @@ struct SubscriptionStatus
   std::string degradation_reason;
   std::string interface_type;
 
-  std::optional<SubscriptionQosSummary> qos_summary;
+  std::optional<SubscriptionQos> qos;
 
   // Applied data interval; ignored for video delivery.
   int interval_ms = 0;

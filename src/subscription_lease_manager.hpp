@@ -27,7 +27,7 @@
 #include <vector>
 
 #include "access_policy.hpp"
-#include "protocol/current_value.hpp"
+#include "protocol/echo_once.hpp"
 #include "protocol/subscriptions.hpp"
 #include "rclcpp/clock.hpp"
 #include "rclcpp/node_interfaces/node_base_interface.hpp"
@@ -82,13 +82,13 @@ public:
   void pruneExpiredLeases();
   void shutdown();
 
-  // Answers a client's "request the current value of a topic" by dispatching the cached last
+  // Answers a client's "request a topic's last message" by dispatching the cached last
   // message to that one requester via a targeted byte stream. Returns Sent when a cached value
   // existed and was handed to the (non-blocking) sender, None otherwise (no subscription, no cache,
   // or a non-data delivery such as video). Must run on the ROS executor: it reads the shared
   // subscription map. The requester's own access is the RPC handler's responsibility, not this
-  // method's — see RpcRouter::requestCurrent.
-  CurrentValueResult dispatchCurrentValue(
+  // method's — see RpcRouter::requestEchoOnce.
+  EchoOnceResult dispatchEchoOnce(
     SubscriptionTargetKind kind, const std::string & name, const std::string & requester_identity);
 
 private:

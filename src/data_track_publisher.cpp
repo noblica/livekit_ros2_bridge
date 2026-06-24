@@ -91,15 +91,10 @@ public:
 
     CallbackGate callback_gate_;
 
-    void setLatched(bool latched)
+    void setTransientLocal(bool transient_local)
     {
       std::lock_guard<std::mutex> lock(state_mutex_);
-      is_latched_ = latched;
-    }
-
-    void setReliabilityPolicy(rclcpp::ReliabilityPolicy policy)
-    {
-      reliability_policy_ = policy;
+      is_transient_local_ = transient_local;
     }
 
     void setIntervalMs(int interval_ms)
@@ -108,15 +103,10 @@ public:
       interval_ms_ = interval_ms;
     }
 
-    bool isLatched() const
+    bool isTransientLocal() const
     {
       std::lock_guard<std::mutex> lock(state_mutex_);
-      return is_latched_;
-    }
-
-    rclcpp::ReliabilityPolicy reliabilityPolicy() const
-    {
-      return reliability_policy_;
+      return is_transient_local_;
     }
 
     std::shared_ptr<const std::vector<std::uint8_t>> cachedCdr() const
@@ -132,8 +122,8 @@ public:
       {
         std::lock_guard<std::mutex> lock(state_mutex_);
 
-        if (is_latched_) {
-          // Build the buffer once and share it immutably; current-value reads and the byte-stream
+        if (is_transient_local_) {
+          // Build the buffer once and share it immutably; echo-once reads and the byte-stream
           // send then alias this buffer instead of deep-copying the (possibly large) CDR.
           cached_cdr_ =
             std::make_shared<const std::vector<std::uint8_t>>(cdr.buffer, cdr.buffer + message.size());
@@ -190,8 +180,7 @@ public:
     mutable std::mutex state_mutex_;
     int interval_ms_ = 0;
     std::optional<std::chrono::steady_clock::time_point> last_push_at_;
-    bool is_latched_ = false;
-    rclcpp::ReliabilityPolicy reliability_policy_ = rclcpp::ReliabilityPolicy::Reliable;
+    bool is_transient_local_ = false;
     std::shared_ptr<const std::vector<std::uint8_t>> cached_cdr_;
   };
 
@@ -244,14 +233,9 @@ public:
     state_->setIntervalMs(interval_ms);
   }
 
-  bool isLatched() const
+  bool isTransientLocal() const
   {
-    return state_->isLatched();
-  }
-
-  rclcpp::ReliabilityPolicy reliabilityPolicy() const
-  {
-    return state_->reliabilityPolicy();
+    return state_->isTransientLocal();
   }
 
   std::shared_ptr<const std::vector<std::uint8_t>> cachedCdr() const
@@ -279,8 +263,7 @@ private:
         .info();
     }
 
-    state_->setLatched(qos.qos.durability() == rclcpp::DurabilityPolicy::TransientLocal);
-    state_->setReliabilityPolicy(qos.qos.reliability());
+    state_->setTransientLocal(qos.qos.durability() == rclcpp::DurabilityPolicy::TransientLocal);
 
     subscription_ = rclcpp::create_generic_subscription(
       topics_,
@@ -352,23 +335,18 @@ bool DataTrackPublisher::isPublished() const
   return publication_ != nullptr;
 }
 
-bool DataTrackPublisher::isLatched() const
+bool DataTrackPublisher::isTransientLocal() const
 {
   if (publication_ == nullptr) {
     return false;
   }
-  return publication_->isLatched();
+  return publication_->isTransientLocal();
 }
 
-SubscriptionQosSummary DataTrackPublisher::qosSummary() const
+SubscriptionQos DataTrackPublisher::qos() const
 {
-  const bool is_latched = publication_ != nullptr && publication_->isLatched();
-  const rclcpp::ReliabilityPolicy reliability =
-    publication_ != nullptr ? publication_->reliabilityPolicy() : rclcpp::ReliabilityPolicy::Reliable;
-  return SubscriptionQosSummary{
-    is_latched ? "transient_local" : "volatile",
-    reliability == rclcpp::ReliabilityPolicy::BestEffort ? "best_effort" : "reliable",
-  };
+  const bool is_transient_local = publication_ != nullptr && publication_->isTransientLocal();
+  return SubscriptionQos{is_transient_local ? "transient_local" : "volatile"};
 }
 
 void DataTrackPublisher::setIntervalMs(int interval_ms)
@@ -386,7 +364,7 @@ const std::string & DataTrackPublisher::trackName() const
   return track_name_;
 }
 
-std::optional<LatchedSnapshot> DataTrackPublisher::latchedSnapshot() const
+std::optional<CachedMessage> DataTrackPublisher::cachedMessage() const
 {
   if (publication_ == nullptr) {
     return std::nullopt;
@@ -395,7 +373,7 @@ std::optional<LatchedSnapshot> DataTrackPublisher::latchedSnapshot() const
   if (cdr == nullptr) {
     return std::nullopt;
   }
-  return LatchedSnapshot{ros_topic_, std::move(cdr)};
+  return CachedMessage{ros_topic_, std::move(cdr)};
 }
 
 }  // namespace livekit_ros2_bridge

@@ -175,7 +175,7 @@ std::vector<std::uint8_t> makeSubscribeHeartbeat(const std::string & topic)
   return std::vector<std::uint8_t>(body.begin(), body.end());
 }
 
-std::string makeCurrentValueRequest(const std::string & kind, const std::string & name)
+std::string makeEchoOnceRequest(const std::string & kind, const std::string & name)
 {
   return nlohmann::json{{"kind", kind}, {"name", name}}.dump();
 }
@@ -481,21 +481,21 @@ TEST_F(RpcRouterTest, TopicsListRpcMatchesInterfaceTypeQueryAndAppliesLimitAfter
   EXPECT_EQ(body["topics"][0]["interface_type"].get<std::string>(), "sensor_msgs/msg/BatteryState");
 }
 
-TEST_F(RpcRouterTest, TopicCurrentRpcSendsStreamToCallerForCachedLatchedTopic)
+TEST_F(RpcRouterTest, TopicEchoOnceRpcSendsStreamToCallerForCachedTransientLocalTopic)
 {
   RpcRouterHarness harness(makeSubscribePolicy({"*"}));
-  const std::string topic = "/rpc_router/cv_latched";
+  const std::string topic = "/rpc_router/echo_once_transient_local";
 
-  rclcpp::QoS latched_qos(1);
-  latched_qos.transient_local();
-  auto publisher = harness.node->create_publisher<sensor_msgs::msg::BatteryState>(topic, latched_qos);
+  rclcpp::QoS transient_local_qos(1);
+  transient_local_qos.transient_local();
+  auto publisher = harness.node->create_publisher<sensor_msgs::msg::BatteryState>(topic, transient_local_qos);
 
   rclcpp::executors::SingleThreadedExecutor executor;
   executor.add_node(harness.node);
   ASSERT_TRUE(test_support::spinUntil(
     executor, [&]() { return harness.node->get_topic_names_and_types().count(topic) > 0U; }));
 
-  // Subscribing caches the latched sample; publish until the bridge has received and cached it.
+  // Subscribing caches the transient_local sample; publish until the bridge has received and cached it.
   harness.lease_manager.handleHeartbeatPayload("participant-1", makeSubscribeHeartbeat(topic));
   const auto message = makeBatteryState();
   ASSERT_TRUE(test_support::spinUntil(executor, [&]() {
@@ -505,7 +505,7 @@ TEST_F(RpcRouterTest, TopicCurrentRpcSendsStreamToCallerForCachedLatchedTopic)
 
   ScopedExecutorThread executor_thread(executor);
   const auto response = harness.invokeRpc(
-    protocol::kTopicEchoOnceMethod, makeRpcInvocation("participant-1", makeCurrentValueRequest("topic", topic)));
+    protocol::kTopicEchoOnceMethod, makeRpcInvocation("participant-1", makeEchoOnceRequest("topic", topic)));
   ASSERT_TRUE(response.has_value());
   EXPECT_EQ(nlohmann::json::parse(*response)["result"].get<std::string>(), "sent");
 
@@ -520,7 +520,7 @@ TEST_F(RpcRouterTest, TopicCurrentRpcSendsStreamToCallerForCachedLatchedTopic)
   EXPECT_FLOAT_EQ(decoded.voltage, message.voltage);
 }
 
-TEST_F(RpcRouterTest, TopicCurrentRpcReturnsNoneWhenNothingCached)
+TEST_F(RpcRouterTest, TopicEchoOnceRpcReturnsNoneWhenNothingCached)
 {
   RpcRouterHarness harness(makeSubscribePolicy({"*"}));
 
@@ -530,28 +530,28 @@ TEST_F(RpcRouterTest, TopicCurrentRpcReturnsNoneWhenNothingCached)
   ScopedExecutorThread executor_thread(executor);
   const auto response = harness.invokeRpc(
     protocol::kTopicEchoOnceMethod,
-    makeRpcInvocation("participant-1", makeCurrentValueRequest("topic", "/rpc_router/cv_uncached")));
+    makeRpcInvocation("participant-1", makeEchoOnceRequest("topic", "/rpc_router/echo_once_uncached")));
   ASSERT_TRUE(response.has_value());
   EXPECT_EQ(nlohmann::json::parse(*response)["result"].get<std::string>(), "none");
   EXPECT_TRUE(harness.connection.state->sent_byte_streams.empty());
 }
 
-TEST_F(RpcRouterTest, TopicCurrentRpcReturnsForbiddenForDeniedTopicAndSendsNoStream)
+TEST_F(RpcRouterTest, TopicEchoOnceRpcReturnsForbiddenForDeniedTopicAndSendsNoStream)
 {
-  RpcRouterHarness harness(makeSubscribePolicy({"*"}, {"/rpc_router/cv_denied"}));
+  RpcRouterHarness harness(makeSubscribePolicy({"*"}, {"/rpc_router/echo_once_denied"}));
 
   expectRpcError(
     [&]() {
       harness.invokeRpc(
         protocol::kTopicEchoOnceMethod,
-        makeRpcInvocation("participant-1", makeCurrentValueRequest("topic", "/rpc_router/cv_denied")));
+        makeRpcInvocation("participant-1", makeEchoOnceRequest("topic", "/rpc_router/echo_once_denied")));
     },
     protocol::kForbiddenRpcCode,
-    "ROS topic '/rpc_router/cv_denied' not permitted.");
+    "ROS topic '/rpc_router/echo_once_denied' not permitted.");
   EXPECT_TRUE(harness.connection.state->sent_byte_streams.empty());
 }
 
-TEST_F(RpcRouterTest, TopicCurrentRpcRejectsUnsupportedKindAsInvalidRequest)
+TEST_F(RpcRouterTest, TopicEchoOnceRpcRejectsUnsupportedKindAsInvalidRequest)
 {
   RpcRouterHarness harness(makeSubscribePolicy({"*"}));
 
@@ -559,7 +559,7 @@ TEST_F(RpcRouterTest, TopicCurrentRpcRejectsUnsupportedKindAsInvalidRequest)
     [&]() {
       harness.invokeRpc(
         protocol::kTopicEchoOnceMethod,
-        makeRpcInvocation("participant-1", makeCurrentValueRequest("other_video", "/rpc_router/cv_topic")));
+        makeRpcInvocation("participant-1", makeEchoOnceRequest("other_video", "/rpc_router/echo_once_topic")));
     },
     protocol::kInvalidRequestRpcCode);
   EXPECT_TRUE(harness.connection.state->sent_byte_streams.empty());

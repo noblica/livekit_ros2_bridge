@@ -1258,9 +1258,9 @@ TEST_F(SubscriptionLeaseManagerHeartbeatTest, MixedSubscriptionResultsArePublish
   (void)publisher;
 }
 
-// ---- Current-value dispatch tests ----
+// ---- Echo-once dispatch tests ----
 
-class SubscriptionLeaseManagerCurrentValueTest : public ::testing::Test
+class SubscriptionLeaseManagerEchoOnceTest : public ::testing::Test
 {
 protected:
   static void SetUpTestSuite()
@@ -1270,7 +1270,7 @@ protected:
 
   void SetUp() override
   {
-    node_ = std::make_shared<rclcpp::Node>("test_current_value_node");
+    node_ = std::make_shared<rclcpp::Node>("test_echo_once_node");
     executor_.add_node(node_);
     fake_room_connection_ = std::make_unique<FakeRoomConnection>();
     state_ = fake_room_connection_->state;
@@ -1299,17 +1299,17 @@ protected:
   std::shared_ptr<FakeRoomConnectionState> state_;
 };
 
-TEST_F(SubscriptionLeaseManagerCurrentValueTest, DispatchOnLatchedTopicWithCacheSendsStreamAndReturnsSent)
+TEST_F(SubscriptionLeaseManagerEchoOnceTest, DispatchOnTransientLocalTopicWithCacheSendsStreamAndReturnsSent)
 {
-  const std::string topic = "/battery/cv_latched";
-  rclcpp::QoS latched_qos(1);
-  latched_qos.transient_local();
-  auto publisher = node_->create_publisher<sensor_msgs::msg::BatteryState>(topic, latched_qos);
+  const std::string topic = "/battery/echo_once_transient_local";
+  rclcpp::QoS transient_local_qos(1);
+  transient_local_qos.transient_local();
+  auto publisher = node_->create_publisher<sensor_msgs::msg::BatteryState>(topic, transient_local_qos);
   ASSERT_TRUE(waitForTopic<sensor_msgs::msg::BatteryState>(executor_, node_, topic));
 
   auto manager = makeManager();
 
-  // Subscribing is what makes the bridge cache the latched sample.
+  // Subscribing is what makes the bridge cache the transient_local sample.
   sendHeartbeatAndClear(manager, "requester-1", makeHeartbeat({makeTopicDemand(topic)}));
 
   const auto message = makeBatteryState();
@@ -1317,8 +1317,8 @@ TEST_F(SubscriptionLeaseManagerCurrentValueTest, DispatchOnLatchedTopicWithCache
     return !state_->pushed_data_track_frames.empty();
   }));
 
-  const auto result = manager.dispatchCurrentValue(SubscriptionTargetKind::Topic, topic, "requester-1");
-  EXPECT_EQ(result, CurrentValueResult::Sent);
+  const auto result = manager.dispatchEchoOnce(SubscriptionTargetKind::Topic, topic, "requester-1");
+  EXPECT_EQ(result, EchoOnceResult::Sent);
 
   ASSERT_EQ(state_->sent_byte_streams.size(), 1U);
   const auto & stream = state_->sent_byte_streams[0];
@@ -1332,12 +1332,12 @@ TEST_F(SubscriptionLeaseManagerCurrentValueTest, DispatchOnLatchedTopicWithCache
   EXPECT_FLOAT_EQ(decoded.voltage, message.voltage);
 }
 
-TEST_F(SubscriptionLeaseManagerCurrentValueTest, DispatchWithEmptyCacheReturnsNoneAndNoStream)
+TEST_F(SubscriptionLeaseManagerEchoOnceTest, DispatchWithEmptyCacheReturnsNoneAndNoStream)
 {
-  const std::string topic = "/battery/cv_empty_cache";
-  rclcpp::QoS latched_qos(1);
-  latched_qos.transient_local();
-  auto publisher = node_->create_publisher<sensor_msgs::msg::BatteryState>(topic, latched_qos);
+  const std::string topic = "/battery/echo_once_empty_cache";
+  rclcpp::QoS transient_local_qos(1);
+  transient_local_qos.transient_local();
+  auto publisher = node_->create_publisher<sensor_msgs::msg::BatteryState>(topic, transient_local_qos);
   ASSERT_TRUE(waitForTopic<sensor_msgs::msg::BatteryState>(executor_, node_, topic));
 
   auto manager = makeManager();
@@ -1345,16 +1345,16 @@ TEST_F(SubscriptionLeaseManagerCurrentValueTest, DispatchWithEmptyCacheReturnsNo
   // Subscribe (creating the publisher) but publish nothing — the cache stays empty.
   sendHeartbeatAndClear(manager, "requester-1", makeHeartbeat({makeTopicDemand(topic)}));
 
-  const auto result = manager.dispatchCurrentValue(SubscriptionTargetKind::Topic, topic, "requester-1");
-  EXPECT_EQ(result, CurrentValueResult::None);
+  const auto result = manager.dispatchEchoOnce(SubscriptionTargetKind::Topic, topic, "requester-1");
+  EXPECT_EQ(result, EchoOnceResult::None);
   EXPECT_TRUE(state_->sent_byte_streams.empty());
 
   (void)publisher;
 }
 
-TEST_F(SubscriptionLeaseManagerCurrentValueTest, DispatchOnVolatileTopicReturnsNoneAndNoStream)
+TEST_F(SubscriptionLeaseManagerEchoOnceTest, DispatchOnVolatileTopicReturnsNoneAndNoStream)
 {
-  const std::string topic = "/battery/cv_volatile";
+  const std::string topic = "/battery/echo_once_volatile";
   auto publisher = advertiseTopic<sensor_msgs::msg::BatteryState>(executor_, node_, topic);
 
   auto manager = makeManager();
@@ -1366,40 +1366,40 @@ TEST_F(SubscriptionLeaseManagerCurrentValueTest, DispatchOnVolatileTopicReturnsN
   }));
 
   // A volatile topic is never cached, even after a live frame has been delivered.
-  const auto result = manager.dispatchCurrentValue(SubscriptionTargetKind::Topic, topic, "requester-1");
-  EXPECT_EQ(result, CurrentValueResult::None);
+  const auto result = manager.dispatchEchoOnce(SubscriptionTargetKind::Topic, topic, "requester-1");
+  EXPECT_EQ(result, EchoOnceResult::None);
   EXPECT_TRUE(state_->sent_byte_streams.empty());
 }
 
-TEST_F(SubscriptionLeaseManagerCurrentValueTest, DispatchForUnsubscribedTopicReturnsNoneAndNoStream)
+TEST_F(SubscriptionLeaseManagerEchoOnceTest, DispatchForUnsubscribedTopicReturnsNoneAndNoStream)
 {
-  const std::string topic = "/battery/cv_absent";
-  rclcpp::QoS latched_qos(1);
-  latched_qos.transient_local();
-  auto publisher = node_->create_publisher<sensor_msgs::msg::BatteryState>(topic, latched_qos);
+  const std::string topic = "/battery/echo_once_absent";
+  rclcpp::QoS transient_local_qos(1);
+  transient_local_qos.transient_local();
+  auto publisher = node_->create_publisher<sensor_msgs::msg::BatteryState>(topic, transient_local_qos);
   ASSERT_TRUE(waitForTopic<sensor_msgs::msg::BatteryState>(executor_, node_, topic));
 
   auto manager = makeManager();
 
   // No subscription exists for this topic, so the bridge has nothing cached to dispatch.
-  const auto result = manager.dispatchCurrentValue(SubscriptionTargetKind::Topic, topic, "requester-1");
-  EXPECT_EQ(result, CurrentValueResult::None);
+  const auto result = manager.dispatchEchoOnce(SubscriptionTargetKind::Topic, topic, "requester-1");
+  EXPECT_EQ(result, EchoOnceResult::None);
   EXPECT_TRUE(state_->sent_byte_streams.empty());
 
   (void)publisher;
 }
 
-TEST_F(SubscriptionLeaseManagerCurrentValueTest, DispatchOnlyTargetsRequesterNotExistingViewers)
+TEST_F(SubscriptionLeaseManagerEchoOnceTest, DispatchOnlyTargetsRequesterNotExistingViewers)
 {
-  const std::string topic = "/battery/cv_targeted";
-  rclcpp::QoS latched_qos(1);
-  latched_qos.transient_local();
-  auto publisher = node_->create_publisher<sensor_msgs::msg::BatteryState>(topic, latched_qos);
+  const std::string topic = "/battery/echo_once_targeted";
+  rclcpp::QoS transient_local_qos(1);
+  transient_local_qos.transient_local();
+  auto publisher = node_->create_publisher<sensor_msgs::msg::BatteryState>(topic, transient_local_qos);
   ASSERT_TRUE(waitForTopic<sensor_msgs::msg::BatteryState>(executor_, node_, topic));
 
   auto manager = makeManager();
 
-  // Viewer A subscribes and receives live frames; it must NOT receive the current-value stream.
+  // Viewer A subscribes and receives live frames; it must NOT receive the echo-once stream.
   sendHeartbeatAndClear(manager, "viewer-a", makeHeartbeat({makeTopicDemand(topic)}));
 
   const auto message = makeBatteryState();
@@ -1407,17 +1407,17 @@ TEST_F(SubscriptionLeaseManagerCurrentValueTest, DispatchOnlyTargetsRequesterNot
     return !state_->pushed_data_track_frames.empty();
   }));
 
-  // Viewer B requests the current value: caches are shared per topic, but the delivery is targeted.
-  const auto result = manager.dispatchCurrentValue(SubscriptionTargetKind::Topic, topic, "viewer-b");
-  EXPECT_EQ(result, CurrentValueResult::Sent);
+  // Viewer B requests the last message: caches are shared per topic, but the delivery is targeted.
+  const auto result = manager.dispatchEchoOnce(SubscriptionTargetKind::Topic, topic, "viewer-b");
+  EXPECT_EQ(result, EchoOnceResult::Sent);
 
   ASSERT_EQ(state_->sent_byte_streams.size(), 1U);
   EXPECT_EQ(state_->sent_byte_streams[0].destination_identity, "viewer-b");
 }
 
-TEST_F(SubscriptionLeaseManagerCurrentValueTest, DispatchOnVideoTopicReturnsNoneAndNoStream)
+TEST_F(SubscriptionLeaseManagerEchoOnceTest, DispatchOnVideoTopicReturnsNoneAndNoStream)
 {
-  const std::string topic = "/camera/cv_video";
+  const std::string topic = "/camera/echo_once_video";
   auto publisher = node_->create_publisher<sensor_msgs::msg::Image>(topic, rclcpp::QoS(10));
   ASSERT_TRUE(waitForTopic<sensor_msgs::msg::Image>(executor_, node_, topic));
 
@@ -1426,19 +1426,19 @@ TEST_F(SubscriptionLeaseManagerCurrentValueTest, DispatchOnVideoTopicReturnsNone
   // Subscribe so a (video) runtime exists; video deliveries are not data-cached.
   sendHeartbeatAndClear(manager, "requester-1", makeHeartbeat({makeTopicDemand(topic)}));
 
-  const auto result = manager.dispatchCurrentValue(SubscriptionTargetKind::Topic, topic, "requester-1");
-  EXPECT_EQ(result, CurrentValueResult::None);
+  const auto result = manager.dispatchEchoOnce(SubscriptionTargetKind::Topic, topic, "requester-1");
+  EXPECT_EQ(result, EchoOnceResult::None);
   EXPECT_TRUE(state_->sent_byte_streams.empty());
 
   (void)publisher;
 }
 
-TEST_F(SubscriptionLeaseManagerCurrentValueTest, DispatchAfterTeardownReturnsNoneAndNoStream)
+TEST_F(SubscriptionLeaseManagerEchoOnceTest, DispatchAfterTeardownReturnsNoneAndNoStream)
 {
-  const std::string topic = "/battery/cv_teardown_evicts";
-  rclcpp::QoS latched_qos(1);
-  latched_qos.transient_local();
-  auto publisher = node_->create_publisher<sensor_msgs::msg::BatteryState>(topic, latched_qos);
+  const std::string topic = "/battery/echo_once_teardown_evicts";
+  rclcpp::QoS transient_local_qos(1);
+  transient_local_qos.transient_local();
+  auto publisher = node_->create_publisher<sensor_msgs::msg::BatteryState>(topic, transient_local_qos);
   ASSERT_TRUE(waitForTopic<sensor_msgs::msg::BatteryState>(executor_, node_, topic));
 
   auto manager = makeManager(makeSubscribePolicy({"*"}), kShortHeartbeatLeaseDuration);
@@ -1451,7 +1451,7 @@ TEST_F(SubscriptionLeaseManagerCurrentValueTest, DispatchAfterTeardownReturnsNon
 
   // The cache is populated.
   EXPECT_EQ(
-    manager.dispatchCurrentValue(SubscriptionTargetKind::Topic, topic, "requester-1"), CurrentValueResult::Sent);
+    manager.dispatchEchoOnce(SubscriptionTargetKind::Topic, topic, "requester-1"), EchoOnceResult::Sent);
   state_->sent_byte_streams.clear();
 
   // Let the lease expire and prune: the subscription teardown evicts the cache.
@@ -1460,17 +1460,17 @@ TEST_F(SubscriptionLeaseManagerCurrentValueTest, DispatchAfterTeardownReturnsNon
   ASSERT_FALSE(state_->unpublished_data_track_names.empty());
 
   // With the subscription gone, the request finds nothing.
-  const auto result = manager.dispatchCurrentValue(SubscriptionTargetKind::Topic, topic, "requester-1");
-  EXPECT_EQ(result, CurrentValueResult::None);
+  const auto result = manager.dispatchEchoOnce(SubscriptionTargetKind::Topic, topic, "requester-1");
+  EXPECT_EQ(result, EchoOnceResult::None);
   EXPECT_TRUE(state_->sent_byte_streams.empty());
 }
 
-TEST_F(SubscriptionLeaseManagerCurrentValueTest, DispatchReturnsNoneWhenSendFailsSynchronously)
+TEST_F(SubscriptionLeaseManagerEchoOnceTest, DispatchReturnsNoneWhenSendFailsSynchronously)
 {
-  const std::string topic = "/battery/cv_send_failure";
-  rclcpp::QoS latched_qos(1);
-  latched_qos.transient_local();
-  auto publisher = node_->create_publisher<sensor_msgs::msg::BatteryState>(topic, latched_qos);
+  const std::string topic = "/battery/echo_once_send_failure";
+  rclcpp::QoS transient_local_qos(1);
+  transient_local_qos.transient_local();
+  auto publisher = node_->create_publisher<sensor_msgs::msg::BatteryState>(topic, transient_local_qos);
   ASSERT_TRUE(waitForTopic<sensor_msgs::msg::BatteryState>(executor_, node_, topic));
 
   auto manager = makeManager();
@@ -1484,8 +1484,8 @@ TEST_F(SubscriptionLeaseManagerCurrentValueTest, DispatchReturnsNoneWhenSendFail
   // A synchronous dispatch failure is reported as None so the client's retry loop tries again,
   // rather than as Sent — which would wrongly silence retries for a delivery that never left.
   state_->throw_on_send_byte_stream = true;
-  const auto result = manager.dispatchCurrentValue(SubscriptionTargetKind::Topic, topic, "requester-1");
-  EXPECT_EQ(result, CurrentValueResult::None);
+  const auto result = manager.dispatchEchoOnce(SubscriptionTargetKind::Topic, topic, "requester-1");
+  EXPECT_EQ(result, EchoOnceResult::None);
 }
 
 }  // namespace

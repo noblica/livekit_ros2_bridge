@@ -102,7 +102,7 @@ add_library(${PROJECT_NAME} SHARED
   src/data_track_publisher.cpp
   src/node.cpp
   src/protocol/cdr.cpp
-  src/protocol/current_value_json.cpp
+  src/protocol/echo_once_json.cpp
   src/protocol/detail/base64.cpp
   src/protocol/interfaces_json.cpp
   src/protocol/resources_json.cpp
@@ -181,8 +181,8 @@ if(BUILD_TESTING)
   livekit_ros2_bridge_add_test(test_callback_gate test/cpp/test_callback_gate.cpp)
   livekit_ros2_bridge_add_test(test_connection_watchdog test/cpp/test_connection_watchdog.cpp)
   livekit_ros2_bridge_add_test(
-    test_current_value_payloads
-    test/cpp/test_current_value_payloads.cpp
+    test_echo_once_payloads
+    test/cpp/test_echo_once_payloads.cpp
     nlohmann_json::nlohmann_json
   )
   livekit_ros2_bridge_add_test(test_data_track_publisher test/cpp/test_data_track_publisher.cpp)
