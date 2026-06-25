@@ -317,10 +317,11 @@ public:
     // both land on one policy. Do not move write()/close() back onto a caller thread.
     std::thread(
       [room = ref.room, topic, name, content_type, payload, destination_identity]() {
-        // Backstop the whole body: the ByteStreamWriter constructor and the success-path close()
-        // below are uncancellable FFI calls that throw (per the SDK header) on transfer errors and
+        // One backstop for the whole body: the ByteStreamWriter constructor, the write, and both
+        // close() calls are uncancellable FFI that throw (per the SDK header) on transfer errors and
         // teardown races. An exception escaping a detached thread calls std::terminate() and aborts
-        // the process, so — like RosExecutorQueue::drain() — nothing is allowed past this boundary.
+        // the process, so — like RosExecutorQueue::drain() — nothing is allowed past this boundary,
+        // and every failure is logged here exactly once.
         try {
           auto * participant = room == nullptr ? nullptr : room->localParticipant();
           if (participant == nullptr) {
@@ -342,22 +343,16 @@ public:
             {destination_identity});
           try {
             writer.write(*payload);
-          } catch (const std::exception & exc) {
+            writer.close();
+          } catch (...) {
             // The writer does not close on destruction; an unterminated stream leaves the remote
-            // reader waiting forever, so close with a reason. The blocking write already ran on this
-            // throwaway thread, so the failure is logged here rather than propagated to a caller.
+            // reader waiting forever, so close with a reason before letting the boundary below log it.
             try {
-              writer.close("write failed");
+              writer.close("send failed");
             } catch (...) {
             }
-            LogEvent(kLogger, "byte_stream_send_failed")
-              .field("topic", topic)
-              .field("destination_identity", destination_identity)
-              .field("error", exc.what())
-              .warn();
-            return;
+            throw;
           }
-          writer.close();
         } catch (...) {
           LogEvent(kLogger, "byte_stream_send_failed")
             .field("topic", topic)
