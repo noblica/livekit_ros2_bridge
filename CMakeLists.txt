@@ -228,6 +228,7 @@ if(BUILD_TESTING)
   livekit_ros2_bridge_add_test(test_ros_service_caller test/cpp/test_ros_service_caller.cpp ${std_srvs_TARGETS})
   livekit_ros2_bridge_add_test(test_rpc_router test/cpp/test_rpc_router.cpp ${std_srvs_TARGETS})
   livekit_ros2_bridge_add_test(test_runtime test/cpp/test_runtime.cpp ${std_srvs_TARGETS})
+  livekit_ros2_bridge_add_test(test_room_connection test/cpp/test_room_connection.cpp)
   livekit_ros2_bridge_add_test(test_runtime_config test/cpp/test_runtime_config.cpp)
   livekit_ros2_bridge_add_test(test_scope_exit test/cpp/test_scope_exit.cpp)
   livekit_ros2_bridge_add_test(
