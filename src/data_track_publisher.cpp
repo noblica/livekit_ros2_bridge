@@ -335,14 +335,6 @@ bool DataTrackPublisher::isPublished() const
   return publication_ != nullptr;
 }
 
-bool DataTrackPublisher::isTransientLocal() const
-{
-  if (publication_ == nullptr) {
-    return false;
-  }
-  return publication_->isTransientLocal();
-}
-
 SubscriptionQos DataTrackPublisher::qos() const
 {
   const bool is_transient_local = publication_ != nullptr && publication_->isTransientLocal();

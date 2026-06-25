@@ -72,7 +72,6 @@ public:
 
   const std::string & trackName() const;
 
-  bool isTransientLocal() const;
   SubscriptionQos qos() const;
 
   // Returns the cached last message for transient_local topics, or nullopt if the topic is volatile,

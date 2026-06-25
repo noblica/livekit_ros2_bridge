@@ -529,9 +529,11 @@ SubscriptionStatus SubscriptionLeaseManager::status(const Subscription & subscri
       status.delivery = SubscriptionDeliveryKind::Data;
       if (publisher.isPublished()) {
         status.track_name = publisher.trackName();
+        // Durability is only known once the publication (and its resolved subscription QoS) exists;
+        // before then leave qos unset so the wire omits it rather than asserting "volatile".
+        status.qos = publisher.qos();
       }
       status.interval_ms = publisher.intervalMs();
-      status.qos = publisher.qos();
     }
 
     void operator()(const VideoPublisher & publisher) const
