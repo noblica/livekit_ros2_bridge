@@ -49,6 +49,11 @@ enum class SubscriptionDeliveryKind
   Video,
 };
 
+struct SubscriptionQos
+{
+  std::string durability;  // "volatile" | "transient_local"
+};
+
 struct SubscriptionStatus
 {
   SubscriptionTargetKind kind = SubscriptionTargetKind::Topic;
@@ -56,6 +61,8 @@ struct SubscriptionStatus
 
   std::string degradation_reason;
   std::string interface_type;
+
+  std::optional<SubscriptionQos> qos;
 
   // Applied data interval; ignored for video delivery.
   int interval_ms = 0;

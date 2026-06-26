@@ -102,6 +102,7 @@ add_library(${PROJECT_NAME} SHARED
   src/data_track_publisher.cpp
   src/node.cpp
   src/protocol/cdr.cpp
+  src/protocol/echo_once_json.cpp
   src/protocol/detail/base64.cpp
   src/protocol/interfaces_json.cpp
   src/protocol/resources_json.cpp
@@ -179,6 +180,11 @@ if(BUILD_TESTING)
   livekit_ros2_bridge_add_test(test_base64 test/cpp/test_base64.cpp)
   livekit_ros2_bridge_add_test(test_callback_gate test/cpp/test_callback_gate.cpp)
   livekit_ros2_bridge_add_test(test_connection_watchdog test/cpp/test_connection_watchdog.cpp)
+  livekit_ros2_bridge_add_test(
+    test_echo_once_payloads
+    test/cpp/test_echo_once_payloads.cpp
+    nlohmann_json::nlohmann_json
+  )
   livekit_ros2_bridge_add_test(test_data_track_publisher test/cpp/test_data_track_publisher.cpp)
   livekit_ros2_bridge_add_test(
     test_subscription_lease_manager
@@ -222,6 +228,7 @@ if(BUILD_TESTING)
   livekit_ros2_bridge_add_test(test_ros_service_caller test/cpp/test_ros_service_caller.cpp ${std_srvs_TARGETS})
   livekit_ros2_bridge_add_test(test_rpc_router test/cpp/test_rpc_router.cpp ${std_srvs_TARGETS})
   livekit_ros2_bridge_add_test(test_runtime test/cpp/test_runtime.cpp ${std_srvs_TARGETS})
+  livekit_ros2_bridge_add_test(test_room_connection test/cpp/test_room_connection.cpp)
   livekit_ros2_bridge_add_test(test_runtime_config test/cpp/test_runtime_config.cpp)
   livekit_ros2_bridge_add_test(test_scope_exit test/cpp/test_scope_exit.cpp)
   livekit_ros2_bridge_add_test(

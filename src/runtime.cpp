@@ -47,7 +47,12 @@ Runtime::Runtime(Runtime::NodeInterfaces interfaces, std::unique_ptr<RoomConnect
     config_.access_policy,
     &config_.subscription_qos,
     &config_.video_stream)
-, rpc_router_(interfaces.get_node_graph_interface(), config_.access_policy, ros_executor_queue_, ros_service_caller_)
+, rpc_router_(
+    interfaces.get_node_graph_interface(),
+    config_.access_policy,
+    ros_executor_queue_,
+    ros_service_caller_,
+    subscription_lease_manager_)
 , watchdog_(config_.watchdog, logger_)
 {
   subscription_lease_manager_.startPruneTimer(

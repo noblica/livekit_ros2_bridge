@@ -316,6 +316,109 @@ TEST(DataTrackPublisherTest, DestructionUnpublishesPublishedTrackAndDropsSubscri
   EXPECT_EQ(room_connection.state->pushed_data_track_frames.size(), 1U);
 }
 
+TEST(DataTrackPublisherTest, CachedMessageAbsentBeforePublish)
+{
+  ScopedRclcppInit init;
+  auto node = std::make_shared<rclcpp::Node>("data_track_publisher_snapshot_before_publish_test");
+  FakeRoomConnection room_connection;
+  const std::string topic = "/battery/snapshot_before_publish";
+
+  auto track_publisher = createDataTrackPublisher(*node, room_connection, topic);
+  EXPECT_FALSE(track_publisher->cachedMessage().has_value());
+}
+
+TEST(DataTrackPublisherTest, CachedMessageAbsentForVolatileTopic)
+{
+  ScopedRclcppInit init;
+  auto node = std::make_shared<rclcpp::Node>("data_track_publisher_volatile_snapshot_test");
+  FakeRoomConnection room_connection;
+  const std::string topic = "/battery/volatile_snapshot";
+  auto publisher = node->create_publisher<sensor_msgs::msg::BatteryState>(topic, rclcpp::QoS(10));
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  ASSERT_TRUE(waitForTopicType(executor, node, topic, batteryStateInterfaceType()));
+
+  auto track_publisher = createDataTrackPublisher(*node, room_connection, topic);
+  track_publisher->publish();
+  const auto message = makeBatteryState();
+
+  ASSERT_TRUE(publishUntilFrameCount(executor, publisher, message, room_connection, 1U));
+
+  EXPECT_FALSE(track_publisher->cachedMessage().has_value());
+}
+
+TEST(DataTrackPublisherTest, CachedMessagePopulatedForTransientLocalTopic)
+{
+  ScopedRclcppInit init;
+  auto node = std::make_shared<rclcpp::Node>("data_track_publisher_transient_local_snapshot_test");
+  FakeRoomConnection room_connection;
+  const std::string topic = "/battery/transient_local_snapshot";
+
+  rclcpp::QoS transient_local_qos(1);
+  transient_local_qos.transient_local();
+  auto publisher = node->create_publisher<sensor_msgs::msg::BatteryState>(topic, transient_local_qos);
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  ASSERT_TRUE(waitForTopicType(executor, node, topic, batteryStateInterfaceType()));
+
+  auto track_publisher = createDataTrackPublisher(*node, room_connection, topic);
+  track_publisher->publish();
+  const auto message = makeBatteryState();
+
+  ASSERT_TRUE(
+    publishUntil(executor, publisher, message, [&]() { return track_publisher->cachedMessage().has_value(); }));
+
+  const auto snapshot = track_publisher->cachedMessage();
+  ASSERT_TRUE(snapshot.has_value());
+  EXPECT_EQ(snapshot->name, topic);
+  ASSERT_NE(snapshot->cdr, nullptr);
+  EXPECT_FALSE(snapshot->cdr->empty());
+}
+
+TEST(DataTrackPublisherTest, ThrottledMessageStillUpdatesCacheForTransientLocalTopic)
+{
+  ScopedRclcppInit init;
+  auto node = std::make_shared<rclcpp::Node>("data_track_publisher_transient_local_throttle_cache_test");
+  FakeRoomConnection room_connection;
+  const std::string topic = "/battery/transient_local_throttle_cache";
+
+  rclcpp::QoS transient_local_qos(1);
+  transient_local_qos.transient_local();
+  auto publisher = node->create_publisher<sensor_msgs::msg::BatteryState>(topic, transient_local_qos);
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  ASSERT_TRUE(waitForTopicType(executor, node, topic, batteryStateInterfaceType()));
+
+  auto track_publisher = createDataTrackPublisher(*node, room_connection, topic);
+  track_publisher->setIntervalMs(500);
+  track_publisher->publish();
+
+  auto msg1 = makeBatteryState();
+  msg1.voltage = 12.0F;
+
+  ASSERT_TRUE(publishUntil(executor, publisher, msg1, [&]() {
+    return track_publisher->cachedMessage().has_value() && room_connection.state->pushed_data_track_frames.size() == 1U;
+  }));
+
+  const auto snapshot_after_msg1 = track_publisher->cachedMessage();
+  ASSERT_TRUE(snapshot_after_msg1.has_value());
+
+  auto msg2 = makeBatteryState();
+  msg2.voltage = 24.0F;
+  publishAndDrain(executor, publisher, msg2, std::chrono::milliseconds(40));
+
+  EXPECT_EQ(room_connection.state->pushed_data_track_frames.size(), 1U);
+
+  const auto snapshot_after_msg2 = track_publisher->cachedMessage();
+  ASSERT_TRUE(snapshot_after_msg2.has_value());
+  ASSERT_NE(snapshot_after_msg1->cdr, nullptr);
+  ASSERT_NE(snapshot_after_msg2->cdr, nullptr);
+  EXPECT_NE(*snapshot_after_msg2->cdr, *snapshot_after_msg1->cdr);
+}
+
 TEST(DataTrackPublisherTest, DestructionSwallowsUnpublishFailure)
 {
   ScopedRclcppInit init;

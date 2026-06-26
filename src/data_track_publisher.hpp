@@ -14,15 +14,28 @@
 
 #pragma once
 
+#include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
+#include <vector>
 
+#include "protocol/subscriptions.hpp"
 #include "rclcpp/clock.hpp"
 #include "rclcpp/node_interfaces/node_graph_interface.hpp"
 #include "rclcpp/node_interfaces/node_topics_interface.hpp"
 
 namespace livekit_ros2_bridge
 {
+
+struct CachedMessage
+{
+  // Resolved ROS topic name of the cached message.
+  std::string name;
+  // Raw CDR bytes of the cached message, shared immutably with the publisher's cache so a snapshot
+  // costs a pointer copy rather than copying the whole (potentially multi-MB) message.
+  std::shared_ptr<const std::vector<std::uint8_t>> cdr;
+};
 
 struct SubscriptionQosConfig;
 class RoomConnection;
@@ -57,6 +70,12 @@ public:
   void setIntervalMs(int interval_ms);
 
   const std::string & trackName() const;
+
+  SubscriptionQos qos() const;
+
+  // Returns the cached last message for transient_local topics, or nullopt if the topic is volatile,
+  // not yet subscribed, or no message has arrived yet.
+  std::optional<CachedMessage> cachedMessage() const;
 
 private:
   class Publication;

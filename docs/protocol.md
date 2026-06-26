@@ -77,10 +77,12 @@ Every surface in this specification runs over LiveKit. Requests and control flow
 | Data-Packet Topic | `ros2.topic.pub` | client → bridge | Best-effort ROS topic publication |
 | Data Track | `delivery.track_name` | bridge → client | Stream active non-video ROS topics |
 | Video Track | `delivery.track_name` | bridge → client | Stream ROS image topics or `other_video` sources |
+| Byte Stream | `lkros.echo.once` | bridge → client | Deliver a topic's cached last message on request |
 | RPC | `ros2.interface.show` | client ↔ bridge | Fetch interface definitions |
 | RPC | `ros2.service.call` | client ↔ bridge | Call an authorized ROS service |
 | RPC | `ros2.service.list` | client ↔ bridge | List authorized ROS services |
 | RPC | `ros2.topic.list` | client ↔ bridge | List authorized ROS topics |
+| RPC | `ros2.topic.echo.once` | client ↔ bridge | Request a topic's cached last message |
 
 Data-track and video-track names are not fixed strings. Clients learn them from an active [`lkros.status`](#data-packet-topic-lkrosstatus) entry and subscribe to the LiveKit publication with that name.
 
@@ -312,6 +314,7 @@ Active entries (`status: "active"`):
 - MUST set `delivery.kind` to `data` or `video`.
 - MUST include `delivery.track_name`.
 - MAY include `degraded_reason` on video entries when the stream is degraded but still deliverable.
+- MAY include `qos` on data-delivered topics: an object with `durability` (`"volatile"` | `"transient_local"`). A `transient_local` topic supports [`ros2.topic.echo.once`](#rpc-ros2topicechoonce).
 
 #### Error Entries
 
@@ -347,6 +350,9 @@ Non-video ROS topics are delivered on a LiveKit data track.
   "name": "/battery_state",
   "status": "active",
   "interface_type": "sensor_msgs/msg/BatteryState",
+  "qos": {
+    "durability": "volatile"
+  },
   "delivery": {
     "kind": "data",
     "track_name": "lkros.data.battery_state",
@@ -391,6 +397,35 @@ Video deliveries use deterministic track names.
 - Active `topic` entries using video delivery MUST still include `interface_type`.
 - Video `track_name` values MUST be deterministic and stable for the target name.
 - `other_video` track names MUST percent-encode any byte outside the RFC 3986 unreserved set.
+
+## Byte Stream: `lkros.echo.once`
+
+### Purpose
+
+`lkros.echo.once` delivers the cached last message of a `transient_local` ROS topic to a client that explicitly requests it through the [`ros2.topic.echo.once`](#rpc-ros2topicechoonce) RPC. The bridge responds with a targeted LiveKit byte stream carrying the cached CDR, then reports the outcome in the RPC response.
+
+### Name
+
+`lkros.echo.once` is a single fixed stream topic; it is NOT derived per ROS topic. Each delivery carries the resolved ROS topic name in the byte stream's `name` field, so one client-side handler routes every echo-once delivery. This differs from the live data track, whose name is derived per topic (`lkros.data.<topic>`).
+
+### Payload
+
+- The payload is raw serialized CDR bytes — the same bytes the client would receive on the live data track.
+- The content type MUST be `application/x-ros-cdr`.
+- There is no JSON or base64 envelope.
+
+### Requirements
+
+- The bridge caches a topic's value only while an active subscription exists for it; `ros2.topic.echo.once` reads that cache and does not itself create a subscription. If no client has an active subscription for the topic, there is no cached value.
+- The bridge MUST send a stream only for topics whose resolved subscription durability is `transient_local`; volatile topics are never cached and MUST NOT be sent.
+- The bridge MUST send a stream only when a cached value exists for the topic.
+- The stream MUST be targeted to exactly the requesting client identity; existing subscribers MUST NOT receive it.
+- The subscribe access policy applies exactly as for live delivery; the requesting identity's `access.rules.subscribe.*` is re-checked on every call.
+- The byte-stream dispatch is non-blocking: the bridge hands the cached bytes to an asynchronous sender and reports `"sent"` at that point (see [`ros2.topic.echo.once`](#rpc-ros2topicechoonce)). A transfer failure that occurs after the handoff is logged by the bridge but does not change the already-returned `"sent"` result.
+
+### Notes
+
+An echo-once stream MAY arrive after newer live track frames. Clients SHOULD prefer the newer live data when both are received. The payload carries no bridge-applied sequence number; clients that need strict ordering must compare a timestamp inside the message itself.
 
 ## Data-Packet Topic: `ros2.topic.pub`
 
@@ -621,6 +656,44 @@ Clients that omit `interface_type` should be prepared for ambiguity to fail the 
 - Each entry MUST include `topic` and `interface_type`.
 - `topics` MAY be empty when no authorized resource matches.
 
+## RPC: `ros2.topic.echo.once`
+
+### Purpose
+
+`ros2.topic.echo.once` requests the cached last message of a topic. When a value is available, the bridge delivers it to the caller as a targeted [`lkros.echo.once`](#byte-stream-lkrosechoonce) byte stream and answers the RPC with `{"result": "sent"}`. This lets a late-joining client pull the last message of a `transient_local` topic without waiting for the next publication.
+
+### Example Request
+
+```json
+{
+  "kind": "topic",
+  "name": "/map"
+}
+```
+
+### Example Response
+
+```json
+{
+  "result": "sent"
+}
+```
+
+### Request Requirements
+
+- `kind` MUST be present and MUST be the string `"topic"`; any other value (including subscription kinds such as `other_video` and any future kind) MUST be rejected as an invalid request rather than answered with `"none"`.
+- `name` MUST be a present, non-empty string and MUST [normalize](#versioning-and-terminology) to a valid [ROS resource name](#versioning-and-terminology); relative names are expanded to absolute form.
+- `kind` and `name` MAY carry surrounding whitespace, which the bridge trims.
+- Anonymous calls MUST be rejected (see [Error Model](#error-model)).
+- Access checks MUST use `access.rules.subscribe.*` against the requesting identity. A denied topic MUST produce a forbidden error and MUST NOT send a byte stream.
+
+### Response Requirements
+
+- A successful response MUST be a JSON object with a string `result` field whose value is `"sent"` or `"none"`.
+- `result` MUST be `"sent"` when a cached value existed and was handed to the byte-stream sender, targeted to the calling identity.
+- `result` MUST be `"none"` in every other deliverable case: no active subscription for the topic, an empty cache, a volatile topic, a topic delivered as video, or a synchronous dispatch failure. No byte stream is sent in these cases.
+- The bridge intentionally does not distinguish "no value yet" from "never has a value". Clients SHOULD retry a few times on `"none"` (the last message may still be in flight to the bridge) and then stop.
+
 ## Informative: `ros2` CLI Mapping
 
 Rough mapping from familiar `ros2` commands to the bridge. Request-response work uses RPCs, one-shot topic writes use data-packet topics, and streams arrive on data or video tracks. `lkros.heartbeat` and `lkros.status` are bridge control messages, not ROS messages.
@@ -634,6 +707,7 @@ Rough mapping from familiar `ros2` commands to the bridge. Request-response work
 | `ros2 service list` | RPC `ros2.service.list` | Lists services this client may call, with interface types. |
 | `ros2 topic echo /topic` | `lkros.heartbeat` → `lkros.status` → data or video track | Send a heartbeat, read the status, then read the named track. Most topics use a data track; `sensor_msgs/msg/Image` and `sensor_msgs/msg/CompressedImage` may use a video track. |
 | `ros2 topic list` | RPC `ros2.topic.list` | Lists topics this client may use, with interface types. |
+| `ros2 topic echo --once /topic` | RPC `ros2.topic.echo.once` → `lkros.echo.once` byte stream | Pulls the cached last message of a `transient_local` topic. Requires an active subscription to populate the cache; returns `none` for volatile, video, or uncached topics. |
 | `ros2 topic pub /topic Type ...` | Data-packet topic `ros2.topic.pub` | Best-effort single-message publish for small allowed writes. No ack. |
 
 ## Informative: Walkthroughs

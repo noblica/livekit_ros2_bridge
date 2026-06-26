@@ -103,6 +103,7 @@ Supported today:
 - video subscriptions
 - small ROS topic publications into ROS 2
 - other video sources
+- opt-in replay of a transient_local topic's last message for late-joining clients
 
 Not supported today:
 
@@ -110,7 +111,6 @@ Not supported today:
 - ROS parameter get and set
 - full audio support
 - large topic publish payloads
-- Replaying latched topics
 - Metric reporting
 
 ## License
