@@ -492,8 +492,8 @@ TEST_F(RpcRouterTest, TopicEchoOnceRpcSendsStreamToCallerForCachedTransientLocal
 
   rclcpp::executors::SingleThreadedExecutor executor;
   executor.add_node(harness.node);
-  ASSERT_TRUE(test_support::spinUntil(
-    executor, [&]() { return harness.node->get_topic_names_and_types().count(topic) > 0U; }));
+  ASSERT_TRUE(
+    test_support::spinUntil(executor, [&]() { return harness.node->get_topic_names_and_types().count(topic) > 0U; }));
 
   // Subscribing caches the transient_local sample; publish until the bridge has received and cached it.
   harness.lease_manager.handleHeartbeatPayload("participant-1", makeSubscribeHeartbeat(topic));

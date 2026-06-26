@@ -1313,9 +1313,7 @@ TEST_F(SubscriptionLeaseManagerEchoOnceTest, DispatchOnTransientLocalTopicWithCa
   sendHeartbeatAndClear(manager, "requester-1", makeHeartbeat({makeTopicDemand(topic)}));
 
   const auto message = makeBatteryState();
-  ASSERT_TRUE(publishUntil(executor_, publisher, message, [&]() {
-    return !state_->pushed_data_track_frames.empty();
-  }));
+  ASSERT_TRUE(publishUntil(executor_, publisher, message, [&]() { return !state_->pushed_data_track_frames.empty(); }));
 
   const auto result = manager.dispatchEchoOnce(SubscriptionTargetKind::Topic, topic, "requester-1");
   EXPECT_EQ(result, EchoOnceResult::Sent);
@@ -1361,9 +1359,7 @@ TEST_F(SubscriptionLeaseManagerEchoOnceTest, DispatchOnVolatileTopicReturnsNoneA
   sendHeartbeatAndClear(manager, "requester-1", makeHeartbeat({makeTopicDemand(topic)}));
 
   const auto message = makeBatteryState();
-  ASSERT_TRUE(publishUntil(executor_, publisher, message, [&]() {
-    return !state_->pushed_data_track_frames.empty();
-  }));
+  ASSERT_TRUE(publishUntil(executor_, publisher, message, [&]() { return !state_->pushed_data_track_frames.empty(); }));
 
   // A volatile topic is never cached, even after a live frame has been delivered.
   const auto result = manager.dispatchEchoOnce(SubscriptionTargetKind::Topic, topic, "requester-1");
@@ -1403,9 +1399,7 @@ TEST_F(SubscriptionLeaseManagerEchoOnceTest, DispatchOnlyTargetsRequesterNotExis
   sendHeartbeatAndClear(manager, "viewer-a", makeHeartbeat({makeTopicDemand(topic)}));
 
   const auto message = makeBatteryState();
-  ASSERT_TRUE(publishUntil(executor_, publisher, message, [&]() {
-    return !state_->pushed_data_track_frames.empty();
-  }));
+  ASSERT_TRUE(publishUntil(executor_, publisher, message, [&]() { return !state_->pushed_data_track_frames.empty(); }));
 
   // Viewer B requests the last message: caches are shared per topic, but the delivery is targeted.
   const auto result = manager.dispatchEchoOnce(SubscriptionTargetKind::Topic, topic, "viewer-b");
@@ -1445,13 +1439,10 @@ TEST_F(SubscriptionLeaseManagerEchoOnceTest, DispatchAfterTeardownReturnsNoneAnd
   sendHeartbeatAndClear(manager, "requester-1", makeHeartbeat({makeTopicDemand(topic)}));
 
   const auto message = makeBatteryState();
-  ASSERT_TRUE(publishUntil(executor_, publisher, message, [&]() {
-    return !state_->pushed_data_track_frames.empty();
-  }));
+  ASSERT_TRUE(publishUntil(executor_, publisher, message, [&]() { return !state_->pushed_data_track_frames.empty(); }));
 
   // The cache is populated.
-  EXPECT_EQ(
-    manager.dispatchEchoOnce(SubscriptionTargetKind::Topic, topic, "requester-1"), EchoOnceResult::Sent);
+  EXPECT_EQ(manager.dispatchEchoOnce(SubscriptionTargetKind::Topic, topic, "requester-1"), EchoOnceResult::Sent);
   state_->sent_byte_streams.clear();
 
   // Let the lease expire and prune: the subscription teardown evicts the cache.
@@ -1477,9 +1468,7 @@ TEST_F(SubscriptionLeaseManagerEchoOnceTest, DispatchReturnsNoneWhenSendFailsSyn
   sendHeartbeatAndClear(manager, "requester-1", makeHeartbeat({makeTopicDemand(topic)}));
 
   const auto message = makeBatteryState();
-  ASSERT_TRUE(publishUntil(executor_, publisher, message, [&]() {
-    return !state_->pushed_data_track_frames.empty();
-  }));
+  ASSERT_TRUE(publishUntil(executor_, publisher, message, [&]() { return !state_->pushed_data_track_frames.empty(); }));
 
   // A synchronous dispatch failure is reported as None so the client's retry loop tries again,
   // rather than as Sent — which would wrongly silence retries for a delivery that never left.

@@ -315,53 +315,43 @@ public:
     //
     // This is a deliberately localized fix; it must merge into the systemic blocking-call sweep so
     // both land on one policy. Do not move write()/close() back onto a caller thread.
-    std::thread(
-      [room = ref.room, topic, name, content_type, payload, destination_identity]() {
-        // One backstop for the whole body: the ByteStreamWriter constructor, the write, and both
-        // close() calls are uncancellable FFI that throw (per the SDK header) on transfer errors and
-        // teardown races. An exception escaping a detached thread calls std::terminate() and aborts
-        // the process, so — like RosExecutorQueue::drain() — nothing is allowed past this boundary,
-        // and every failure is logged here exactly once.
-        try {
-          auto * participant = room == nullptr ? nullptr : room->localParticipant();
-          if (participant == nullptr) {
-            LogEvent(kLogger, "byte_stream_send_skipped")
-              .field("topic", topic)
-              .field("reason", "local_participant_unavailable")
-              .warn();
-            return;
-          }
-
-          livekit::ByteStreamWriter writer(
-            *participant,
-            name,
-            topic,
-            {},
-            "",
-            payload->size(),
-            content_type,
-            {destination_identity});
-          try {
-            writer.write(*payload);
-            writer.close();
-          } catch (...) {
-            // The writer does not close on destruction; an unterminated stream leaves the remote
-            // reader waiting forever, so close with a reason before letting the boundary below log it.
-            try {
-              writer.close("send failed");
-            } catch (...) {
-            }
-            throw;
-          }
-        } catch (...) {
-          LogEvent(kLogger, "byte_stream_send_failed")
+    std::thread([room = ref.room, topic, name, content_type, payload, destination_identity]() {
+      // One backstop for the whole body: the ByteStreamWriter constructor, the write, and both
+      // close() calls are uncancellable FFI that throw (per the SDK header) on transfer errors and
+      // teardown races. An exception escaping a detached thread calls std::terminate() and aborts
+      // the process, so — like RosExecutorQueue::drain() — nothing is allowed past this boundary,
+      // and every failure is logged here exactly once.
+      try {
+        auto * participant = room == nullptr ? nullptr : room->localParticipant();
+        if (participant == nullptr) {
+          LogEvent(kLogger, "byte_stream_send_skipped")
             .field("topic", topic)
-            .field("destination_identity", destination_identity)
-            .fieldException("error", std::current_exception())
+            .field("reason", "local_participant_unavailable")
             .warn();
+          return;
         }
-      })
-      .detach();
+
+        livekit::ByteStreamWriter writer(
+          *participant, name, topic, {}, "", payload->size(), content_type, {destination_identity});
+        try {
+          writer.write(*payload);
+          writer.close();
+        } catch (...) {
+          // The writer does not close on destruction; an unterminated stream leaves the remote
+          // reader waiting forever, so close with a reason before letting the boundary below log it.
+          try {
+            writer.close("send failed");
+          } catch (...) {}
+          throw;
+        }
+      } catch (...) {
+        LogEvent(kLogger, "byte_stream_send_failed")
+          .field("topic", topic)
+          .field("destination_identity", destination_identity)
+          .fieldException("error", std::current_exception())
+          .warn();
+      }
+    }).detach();
   }
 
 private:

@@ -62,10 +62,8 @@ TEST(EchoOncePayloadsTest, ParseRejectsUnsupportedKind)
 {
   // `other_video` is a valid subscription kind but is not supported by the echo-once primitive;
   // it must fail loudly rather than silently returning `none`.
-  expectParseError(
-    R"({"kind":"other_video","name":"/map"})", "echo-once 'kind' must be 'topic'", "kind");
-  expectParseError(
-    R"({"kind":"future_kind","name":"/map"})", "echo-once 'kind' must be 'topic'", "kind");
+  expectParseError(R"({"kind":"other_video","name":"/map"})", "echo-once 'kind' must be 'topic'", "kind");
+  expectParseError(R"({"kind":"future_kind","name":"/map"})", "echo-once 'kind' must be 'topic'", "kind");
 }
 
 TEST(EchoOncePayloadsTest, ParseRejectsMissingOrNonStringKind)

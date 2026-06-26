@@ -41,8 +41,7 @@ TEST(RoomConnectionSendByteStreamTest, NullPayloadThrowsInvalidArgument)
 {
   const auto connection = createRoomConnection();
   EXPECT_THROW(
-    connection->sendByteStream(
-      protocol::kEchoOnceTopic, "/map", protocol::kCdrContentType, nullptr, "participant-1"),
+    connection->sendByteStream(protocol::kEchoOnceTopic, "/map", protocol::kCdrContentType, nullptr, "participant-1"),
     std::invalid_argument);
 }
 
@@ -52,8 +51,7 @@ TEST(RoomConnectionSendByteStreamTest, UnavailableLocalParticipantThrowsRuntimeE
   // spawn a sender thread.
   const auto connection = createRoomConnection();
   EXPECT_THROW(
-    connection->sendByteStream(
-      protocol::kEchoOnceTopic, "/map", protocol::kCdrContentType, makeCdr(), "participant-1"),
+    connection->sendByteStream(protocol::kEchoOnceTopic, "/map", protocol::kCdrContentType, makeCdr(), "participant-1"),
     std::runtime_error);
 }
 

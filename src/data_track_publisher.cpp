@@ -125,8 +125,7 @@ public:
         if (is_transient_local_) {
           // Build the buffer once and share it immutably; echo-once reads and the byte-stream
           // send then alias this buffer instead of deep-copying the (possibly large) CDR.
-          cached_cdr_ =
-            std::make_shared<const std::vector<std::uint8_t>>(cdr.buffer, cdr.buffer + message.size());
+          cached_cdr_ = std::make_shared<const std::vector<std::uint8_t>>(cdr.buffer, cdr.buffer + message.size());
         }
 
         if (interval_ms_ != 0) {

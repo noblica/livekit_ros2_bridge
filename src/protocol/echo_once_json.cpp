@@ -44,8 +44,7 @@ EchoOnceRequest parse(const std::string & payload)
 {
   Json body;
   try {
-    body = detail::parseObject(
-      payload, "Invalid JSON in echo-once request", "Echo-once request must be a JSON object");
+    body = detail::parseObject(payload, "Invalid JSON in echo-once request", "Echo-once request must be a JSON object");
   } catch (const std::invalid_argument & exc) {
     throw ValidationError(kPayloadField, exc.what());
   }

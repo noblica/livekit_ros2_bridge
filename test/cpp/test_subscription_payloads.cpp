@@ -538,8 +538,8 @@ TEST(SubscriptionPayloadsTest, SerializeSubscriptionStatusIncludesQosForDataTopi
     SubscriptionTargetKind::Topic, "/battery_state", SubscriptionDeliveryKind::Data, "lkros.data.battery_state");
   volatile_topic.qos = SubscriptionQos{"volatile"};
 
-  auto no_qos_topic = makeStatus(
-    SubscriptionTargetKind::Topic, "/video_stream", SubscriptionDeliveryKind::Video, "lkros.video.camera");
+  auto no_qos_topic =
+    makeStatus(SubscriptionTargetKind::Topic, "/video_stream", SubscriptionDeliveryKind::Video, "lkros.video.camera");
 
   nlohmann::json expected = {
     {"v", protocol::kProtocolVersion},

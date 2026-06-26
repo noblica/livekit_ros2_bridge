@@ -367,9 +367,8 @@ TEST(DataTrackPublisherTest, CachedMessagePopulatedForTransientLocalTopic)
   track_publisher->publish();
   const auto message = makeBatteryState();
 
-  ASSERT_TRUE(publishUntil(executor, publisher, message, [&]() {
-    return track_publisher->cachedMessage().has_value();
-  }));
+  ASSERT_TRUE(
+    publishUntil(executor, publisher, message, [&]() { return track_publisher->cachedMessage().has_value(); }));
 
   const auto snapshot = track_publisher->cachedMessage();
   ASSERT_TRUE(snapshot.has_value());
@@ -401,8 +400,7 @@ TEST(DataTrackPublisherTest, ThrottledMessageStillUpdatesCacheForTransientLocalT
   msg1.voltage = 12.0F;
 
   ASSERT_TRUE(publishUntil(executor, publisher, msg1, [&]() {
-    return track_publisher->cachedMessage().has_value() &&
-           room_connection.state->pushed_data_track_frames.size() == 1U;
+    return track_publisher->cachedMessage().has_value() && room_connection.state->pushed_data_track_frames.size() == 1U;
   }));
 
   const auto snapshot_after_msg1 = track_publisher->cachedMessage();

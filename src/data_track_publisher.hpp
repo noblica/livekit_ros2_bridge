@@ -20,11 +20,10 @@
 #include <string>
 #include <vector>
 
+#include "protocol/subscriptions.hpp"
 #include "rclcpp/clock.hpp"
 #include "rclcpp/node_interfaces/node_graph_interface.hpp"
 #include "rclcpp/node_interfaces/node_topics_interface.hpp"
-
-#include "protocol/subscriptions.hpp"
 
 namespace livekit_ros2_bridge
 {
