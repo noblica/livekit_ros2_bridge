@@ -23,12 +23,17 @@
 #include "fake_room_connection.hpp"
 #include "gtest/gtest.h"
 #include "livekit/video_frame.h"
+#include "ros_test_support.hpp"
 #include "video/track_publisher.hpp"
 
 namespace livekit_ros2_bridge::video
 {
 namespace
 {
+
+// TrackPublisher drives a real livekit::VideoSource, which in LiveKit 1.6.0
+// requires livekit::initialize() before it can be constructed.
+const test_support::ScopedLiveKitInit kLiveKitInit;
 
 StreamSpec makeSpec(const std::string & stream_key, const std::string & track_name)
 {
@@ -82,8 +87,9 @@ TEST(TrackPublisherTest, EnablesUserTimestampPacketTrailerForPublishedVideo)
   publisher->capture(makeFrame(2, 2), 1000);
 
   ASSERT_EQ(connection.state->published_video_options.size(), 1U);
-  EXPECT_TRUE(connection.state->published_video_options.front().packet_trailer_features.user_timestamp);
-  EXPECT_FALSE(connection.state->published_video_options.front().packet_trailer_features.frame_id);
+  ASSERT_TRUE(connection.state->published_video_options.front().frame_metadata_features.has_value());
+  EXPECT_TRUE(connection.state->published_video_options.front().frame_metadata_features->user_timestamp);
+  EXPECT_FALSE(connection.state->published_video_options.front().frame_metadata_features->frame_id);
 }
 
 TEST(TrackPublisherTest, DestructionUsesBestEffortPublishedTrackCleanup)

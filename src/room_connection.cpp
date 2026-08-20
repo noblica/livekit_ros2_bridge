@@ -53,7 +53,7 @@ constexpr char kLocalParticipantUnavailable[] = "LiveKit local participant unava
 struct ParticipantRef
 {
   std::shared_ptr<livekit::Room> room;
-  livekit::LocalParticipant * participant = nullptr;
+  std::shared_ptr<livekit::LocalParticipant> participant;
   std::uint64_t room_generation = 0;
 };
 
@@ -120,7 +120,8 @@ public:
     std::lock_guard<std::mutex> lock(mutex_);
     rpc_handlers_.erase(method);
 
-    auto * participant = room_ == nullptr ? nullptr : room_->localParticipant();
+    auto participant =
+      room_ == nullptr ? std::shared_ptr<livekit::LocalParticipant>{} : room_->localParticipant().lock();
     if (participant == nullptr) {
       return true;
     }
@@ -196,7 +197,7 @@ public:
     if (state_ == livekit::ConnectionState::Disconnected) {
       return;
     }
-    auto * participant = room_ == nullptr ? nullptr : room_->localParticipant();
+    auto * participant = room_ == nullptr ? nullptr : room_->localParticipant().lock().get();
     if (participant == nullptr) {
       return;
     }
@@ -322,7 +323,7 @@ public:
       // the process, so — like RosExecutorQueue::drain() — nothing is allowed past this boundary,
       // and every failure is logged here exactly once.
       try {
-        auto * participant = room == nullptr ? nullptr : room->localParticipant();
+        auto * participant = room == nullptr ? nullptr : room->localParticipant().lock().get();
         if (participant == nullptr) {
           LogEvent(kLogger, "byte_stream_send_skipped")
             .field("topic", topic)
@@ -362,7 +363,7 @@ private:
     ref.room = room_;
     ref.room_generation = room_generation_;
     if (state_ != livekit::ConnectionState::Disconnected && ref.room != nullptr) {
-      ref.participant = ref.room->localParticipant();
+      ref.participant = ref.room->localParticipant().lock();
     }
     return ref;
   }
@@ -463,8 +464,8 @@ private:
 
     LogEvent(kLogger, "room_connected")
       .fieldOr("url", config.url)
-      .fieldOr("room_sid", active_room->room_info().sid)
-      .fieldOr("room_name", active_room->room_info().name)
+      .fieldOr("room_sid", active_room->roomInfo().sid)
+      .fieldOr("room_name", active_room->roomInfo().name)
       .info();
     transitionState(livekit::ConnectionState::Connected);
     return true;
@@ -478,7 +479,7 @@ private:
     const livekit::RoomOptions options;
     bool connected = false;
     try {
-      connected = room->Connect(config.url, config.access_token, options);
+      connected = room->connect(config.url, config.access_token, options);
       if (!connected) {
         LogEvent(kLogger, "room_connect_failed")
           .field("reason", "connect_returned_false")
@@ -500,7 +501,7 @@ private:
       return nullptr;
     }
 
-    if (room->localParticipant() == nullptr) {
+    if (room->localParticipant().lock() == nullptr) {
       LogEvent(kLogger, "room_connect_failed")
         .field("reason", "local_participant_unavailable")
         .fieldOr("url", config.url)
@@ -638,13 +639,13 @@ private:
 
   void onReconnecting(livekit::Room & room, const livekit::ReconnectingEvent &) override
   {
-    LogEvent(kLogger, "room_reconnecting").fieldOr("room_sid", room.room_info().sid).warn();
+    LogEvent(kLogger, "room_reconnecting").fieldOr("room_sid", room.roomInfo().sid).warn();
     transitionState(livekit::ConnectionState::Reconnecting);
   }
 
   void onReconnected(livekit::Room & room, const livekit::ReconnectedEvent &) override
   {
-    LogEvent(kLogger, "room_reconnected").fieldOr("room_sid", room.room_info().sid).info();
+    LogEvent(kLogger, "room_reconnected").fieldOr("room_sid", room.roomInfo().sid).info();
     transitionState(livekit::ConnectionState::Connected);
   }
 
@@ -656,7 +657,7 @@ private:
 
   bool registerRpcLocked(const std::string & method)
   {
-    auto * participant = room_ == nullptr ? nullptr : room_->localParticipant();
+    auto * participant = room_ == nullptr ? nullptr : room_->localParticipant().lock().get();
     const auto it = rpc_handlers_.find(method);
     if (participant == nullptr || it == rpc_handlers_.end()) {
       return true;

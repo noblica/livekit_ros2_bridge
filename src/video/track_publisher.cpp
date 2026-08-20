@@ -48,7 +48,9 @@ void tryUnpublish(RoomConnection & connection, const std::shared_ptr<livekit::Lo
 
 livekit::TrackPublishOptions publishOptionsWithFrameMetadata(livekit::TrackPublishOptions options)
 {
-  options.packet_trailer_features.user_timestamp = true;
+  livekit::FrameMetadataFeatures metadata_features;
+  metadata_features.user_timestamp = true;
+  options.frame_metadata_features = metadata_features;
   return options;
 }
 

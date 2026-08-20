@@ -48,6 +48,9 @@ using test_support::ScopedRclcppInit;
 using test_support::spinUntil;
 using test_support::waitForTopicType;
 using test_support::waitUntil;
+// Video publishing drives a real livekit::VideoSource, which in LiveKit 1.6.0
+// requires livekit::initialize() before it can be constructed.
+const test_support::ScopedLiveKitInit kLiveKitInit;
 
 constexpr auto kHealthyConnectionObservationWindow = std::chrono::milliseconds(1200);
 constexpr auto kWatchdogObservationWindow = std::chrono::seconds(2);

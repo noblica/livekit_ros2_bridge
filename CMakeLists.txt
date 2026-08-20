@@ -129,9 +129,10 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
   rclcpp_components::component
 )
 target_link_libraries(${PROJECT_NAME} PRIVATE
-  # LiveKit 0.3.4 keeps spdlog private in CMake but still exports spdlog
-  # symbols from liblivekit.so. Ensure ROS binds its logging plugin to the
-  # system spdlog before liblivekit enters the process.
+  # LiveKit 1.6.0 statically embeds spdlog in liblivekit_ffi.so; neither
+  # liblivekit.so nor the CMake package exports or links spdlog symbols.
+  # Keep the explicit link so any SDK-transitively-exposed spdlog symbols
+  # bind to the system spdlog before liblivekit enters the process.
   -Wl,--no-as-needed
   "${SPDLOG_LIBRARY}"
   -Wl,--as-needed
