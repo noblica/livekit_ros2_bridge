@@ -30,7 +30,6 @@ ament_auto_find_build_dependencies()
 find_package(nlohmann_json REQUIRED)
 find_package(OpenSSL REQUIRED)
 find_package(PkgConfig REQUIRED)
-find_library(SPDLOG_LIBRARY NAMES spdlog REQUIRED)
 
 set(LIVEKIT_ROS2_BRIDGE_PACKAGE_VERSION "${${PROJECT_NAME}_VERSION}")
 
@@ -129,13 +128,6 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
   rclcpp_components::component
 )
 target_link_libraries(${PROJECT_NAME} PRIVATE
-  # LiveKit 1.6.0 statically embeds spdlog in liblivekit_ffi.so; neither
-  # liblivekit.so nor the CMake package exports or links spdlog symbols.
-  # Keep the explicit link so any SDK-transitively-exposed spdlog symbols
-  # bind to the system spdlog before liblivekit enters the process.
-  -Wl,--no-as-needed
-  "${SPDLOG_LIBRARY}"
-  -Wl,--as-needed
   livekit_ros2_bridge_parameters
   livekit_ros2_bridge_ros_interfaces
   livekit_ros2_bridge_video
@@ -166,9 +158,6 @@ if(BUILD_TESTING)
     )
     target_link_libraries(${test_name}
       ${PROJECT_NAME}
-      -Wl,--no-as-needed
-      "${SPDLOG_LIBRARY}"
-      -Wl,--as-needed
       LiveKit::livekit
       rclcpp::rclcpp
       livekit_ros2_bridge_parameters
