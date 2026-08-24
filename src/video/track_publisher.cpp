@@ -50,6 +50,7 @@ livekit::TrackPublishOptions publishOptionsWithFrameMetadata(livekit::TrackPubli
 {
   livekit::FrameMetadataFeatures metadata_features;
   metadata_features.user_timestamp = true;
+  metadata_features.frame_id = false;
   options.frame_metadata_features = metadata_features;
   return options;
 }
