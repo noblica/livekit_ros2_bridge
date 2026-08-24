@@ -40,6 +40,10 @@ namespace livekit_ros2_bridge::video
 namespace
 {
 
+// GStreamer capture drives a real livekit::VideoSource, which in LiveKit 1.6.0
+// requires livekit::initialize() before it can be constructed.
+const test_support::ScopedLiveKitInit kLiveKitInit;
+
 StreamSpec makeOtherSpec()
 {
   StreamSpec spec;
