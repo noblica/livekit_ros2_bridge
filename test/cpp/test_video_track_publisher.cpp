@@ -31,8 +31,7 @@ namespace livekit_ros2_bridge::video
 namespace
 {
 
-// TrackPublisher drives a real livekit::VideoSource, which in LiveKit 1.6.0
-// requires livekit::initialize() before it can be constructed.
+// LiveKit 1.6.0+ requires livekit::initialize() before constructing livekit::VideoSource; see ScopedLiveKitInit.
 const test_support::ScopedLiveKitInit kLiveKitInit;
 
 StreamSpec makeSpec(const std::string & stream_key, const std::string & track_name)
