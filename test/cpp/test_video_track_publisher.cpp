@@ -78,7 +78,7 @@ TEST(TrackPublisherTest, RepublishesOnSizeChangeAndUnpublishesOnDestruction)
     }));
 }
 
-TEST(TrackPublisherTest, EnablesUserTimestampPacketTrailerForPublishedVideo)
+TEST(TrackPublisherTest, EnablesUserTimestampFrameMetadataForPublishedVideo)
 {
   FakeRoomConnection connection;
   auto publisher =
