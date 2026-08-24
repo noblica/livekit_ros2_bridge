@@ -4,6 +4,7 @@ Changelog for package livekit_ros2_bridge
 
 0.1.1 (Unreleased)
 ------------------
+* Bump the LiveKit C++ SDK to 1.6.0, which adds a libcurl runtime dependency and replaces `packet_trailer_features` with `frame_metadata_features`.
 * Move watchdog timeout enforcement off the ROS executor and fix stale recovery-deadline handling.
 * Improve logging around LiveKit room and track lifecycle events.
 * Stop republishing already published data tracks on participant refresh/reconnect.
