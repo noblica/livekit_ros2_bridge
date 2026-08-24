@@ -30,6 +30,8 @@
   <exec_depend>ca-certificates</exec_depend>
   <exec_depend>gstreamer1.0-plugins-base</exec_depend>
   <exec_depend>gstreamer1.0-plugins-good</exec_depend>
+  <!-- liblivekit.so gained a direct libcurl link in LiveKit 1.6.0. -->
+  <exec_depend>libcurl</exec_depend>
 
   <test_depend>ament_cmake_gtest</test_depend>
   <test_depend>std_msgs</test_depend>
