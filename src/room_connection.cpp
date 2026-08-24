@@ -120,8 +120,7 @@ public:
     std::lock_guard<std::mutex> lock(mutex_);
     rpc_handlers_.erase(method);
 
-    auto participant =
-      room_ == nullptr ? std::shared_ptr<livekit::LocalParticipant>{} : room_->localParticipant().lock();
+    auto participant = lockedLocalParticipant(room_);
     if (participant == nullptr) {
       return true;
     }
@@ -197,8 +196,7 @@ public:
     if (state_ == livekit::ConnectionState::Disconnected) {
       return;
     }
-    auto participant =
-      room_ == nullptr ? std::shared_ptr<livekit::LocalParticipant>{} : room_->localParticipant().lock();
+    auto participant = lockedLocalParticipant(room_);
     if (participant == nullptr) {
       return;
     }
@@ -324,8 +322,7 @@ public:
       // the process, so — like RosExecutorQueue::drain() — nothing is allowed past this boundary,
       // and every failure is logged here exactly once.
       try {
-        auto participant =
-          room == nullptr ? std::shared_ptr<livekit::LocalParticipant>{} : room->localParticipant().lock();
+        auto participant = lockedLocalParticipant(room);
         if (participant == nullptr) {
           LogEvent(kLogger, "byte_stream_send_skipped")
             .field("topic", topic)
@@ -358,14 +355,20 @@ public:
   }
 
 private:
+  // Requires mutex_ to be held (or to be passed a room snapshotted under it).
+  static std::shared_ptr<livekit::LocalParticipant> lockedLocalParticipant(const std::shared_ptr<livekit::Room> & room)
+  {
+    return room == nullptr ? std::shared_ptr<livekit::LocalParticipant>{} : room->localParticipant().lock();
+  }
+
   ParticipantRef participantRef() const
   {
     std::lock_guard<std::mutex> lock(mutex_);
     ParticipantRef ref;
     ref.room = room_;
     ref.room_generation = room_generation_;
-    if (state_ != livekit::ConnectionState::Disconnected && ref.room != nullptr) {
-      ref.participant = ref.room->localParticipant().lock();
+    if (state_ != livekit::ConnectionState::Disconnected) {
+      ref.participant = lockedLocalParticipant(ref.room);
     }
     return ref;
   }
@@ -659,8 +662,7 @@ private:
 
   bool registerRpcLocked(const std::string & method)
   {
-    auto participant =
-      room_ == nullptr ? std::shared_ptr<livekit::LocalParticipant>{} : room_->localParticipant().lock();
+    auto participant = lockedLocalParticipant(room_);
     const auto it = rpc_handlers_.find(method);
     if (participant == nullptr || it == rpc_handlers_.end()) {
       return true;
