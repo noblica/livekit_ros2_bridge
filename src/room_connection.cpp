@@ -197,7 +197,8 @@ public:
     if (state_ == livekit::ConnectionState::Disconnected) {
       return;
     }
-    auto * participant = room_ == nullptr ? nullptr : room_->localParticipant().lock().get();
+    auto participant =
+      room_ == nullptr ? std::shared_ptr<livekit::LocalParticipant>{} : room_->localParticipant().lock();
     if (participant == nullptr) {
       return;
     }
@@ -323,7 +324,8 @@ public:
       // the process, so — like RosExecutorQueue::drain() — nothing is allowed past this boundary,
       // and every failure is logged here exactly once.
       try {
-        auto * participant = room == nullptr ? nullptr : room->localParticipant().lock().get();
+        auto participant =
+          room == nullptr ? std::shared_ptr<livekit::LocalParticipant>{} : room->localParticipant().lock();
         if (participant == nullptr) {
           LogEvent(kLogger, "byte_stream_send_skipped")
             .field("topic", topic)
@@ -657,7 +659,8 @@ private:
 
   bool registerRpcLocked(const std::string & method)
   {
-    auto * participant = room_ == nullptr ? nullptr : room_->localParticipant().lock().get();
+    auto participant =
+      room_ == nullptr ? std::shared_ptr<livekit::LocalParticipant>{} : room_->localParticipant().lock();
     const auto it = rpc_handlers_.find(method);
     if (participant == nullptr || it == rpc_handlers_.end()) {
       return true;
