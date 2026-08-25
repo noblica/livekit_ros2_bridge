@@ -47,6 +47,8 @@ using test_support::ScopedRclcppInit;
 using test_support::spinUntil;
 using test_support::waitForTopicType;
 using test_support::waitUntil;
+// LiveKit 1.6.0+ requires livekit::initialize() before constructing livekit::VideoSource; see ScopedLiveKitInit.
+const test_support::ScopedLiveKitInit kLiveKitInit;
 constexpr auto kShortHeartbeatLeaseDuration = std::chrono::milliseconds(120);
 constexpr auto kLeaseWaitBuffer = std::chrono::milliseconds(40);
 

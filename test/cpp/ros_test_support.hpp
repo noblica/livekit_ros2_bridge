@@ -23,6 +23,7 @@
 #include <string>
 #include <thread>
 
+#include "livekit/livekit.h"
 #include "rclcpp/executors/single_threaded_executor.hpp"
 #include "rclcpp/rclcpp.hpp"
 
@@ -59,6 +60,21 @@ public:
     if (rclcpp::ok()) {
       rclcpp::shutdown();
     }
+  }
+};
+
+// LiveKit 1.6.0+ requires livekit::initialize() before any FFI-backed object
+// (e.g. livekit::VideoSource) can be constructed. Without it those calls throw
+// "LiveKit is not initialized". Keep a single process-wide init for the tests
+// that drive real LiveKit objects. The destructor does not call shutdown():
+// doing so at static-destruction time races the FFI runtime teardown, so we let
+// process exit reclaim the SDK instead.
+class ScopedLiveKitInit
+{
+public:
+  ScopedLiveKitInit()
+  {
+    livekit::initialize();
   }
 };
 

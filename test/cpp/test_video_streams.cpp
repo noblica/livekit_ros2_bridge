@@ -40,6 +40,9 @@ namespace livekit_ros2_bridge::video
 namespace
 {
 
+// LiveKit 1.6.0+ requires livekit::initialize() before constructing livekit::VideoSource; see ScopedLiveKitInit.
+const test_support::ScopedLiveKitInit kLiveKitInit;
+
 StreamSpec makeOtherSpec()
 {
   StreamSpec spec;
