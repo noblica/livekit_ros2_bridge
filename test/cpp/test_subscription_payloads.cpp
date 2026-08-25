@@ -116,6 +116,13 @@ TEST(SubscriptionPayloadsTest, ParseHeartbeatNormalizesTargetsAndIntervals)
     125);
 
   expectDemand(
+    nlohmann::json::parse(
+      R"({"subscriptions":[{"kind":"other_audio","name":" cab_mic ","delivery_preferences":{"interval_ms":125}}]})"),
+    SubscriptionTargetKind::OtherAudio,
+    "cab_mic",
+    125);
+
+  expectDemand(
     nlohmann::json::parse(R"({"subscriptions":[{"kind":"topic","name":"/camera"}]})"),
     SubscriptionTargetKind::Topic,
     expandHeartbeatTopicName("/camera"),
@@ -205,11 +212,11 @@ TEST(SubscriptionPayloadsTest, ParseHeartbeatRejectsBlankOrUnsupportedTargets)
 
   expectParseError(
     nlohmann::json::parse(R"({"subscriptions":[{"kind":"other_video","name":"   "}]})"),
-    "heartbeat subscription other video name must trim to a non-empty name",
+    "heartbeat subscription other source name must trim to a non-empty name",
     "subscriptions.name");
   expectParseError(
     nlohmann::json::parse(R"({"subscriptions":[{"kind":"service","name":"/battery"}]})"),
-    "heartbeat subscription 'kind' must be 'topic' or 'other_video'",
+    "heartbeat subscription 'kind' must be 'topic', 'other_video', or 'other_audio'",
     "subscriptions.kind");
 }
 
@@ -369,6 +376,31 @@ TEST(SubscriptionPayloadsTest, SerializeSubscriptionStatusesSerializesSuccessOnl
       std::vector<SubscriptionStatusEntry>{SubscriptionStatusEntry{topic_data}, SubscriptionStatusEntry{other_video}},
       std::nullopt,
       std::nullopt),
+    expected);
+}
+
+TEST(SubscriptionPayloadsTest, SerializeSubscriptionStatusesSerializesAudioDelivery)
+{
+  auto other_audio = makeStatus(
+    SubscriptionTargetKind::OtherAudio,
+    "/sources/cab_mic",
+    SubscriptionDeliveryKind::Audio,
+    "lkros.audio.other.%2Fsources%2Fcab_mic");
+
+  nlohmann::json expected = {
+    {"v", protocol::kProtocolVersion},
+    {"type", protocol::kStatusTopic},
+    {"subscriptions", nlohmann::json::array()},
+  };
+  expected["subscriptions"].push_back({
+    {"kind", "other_audio"},
+    {"name", "/sources/cab_mic"},
+    {"status", "active"},
+    {"delivery", {{"kind", "audio"}, {"track_name", "lkros.audio.other.%2Fsources%2Fcab_mic"}}},
+  });
+
+  EXPECT_EQ(
+    statusBody(std::vector<SubscriptionStatusEntry>{SubscriptionStatusEntry{other_audio}}, std::nullopt, std::nullopt),
     expected);
 }
 

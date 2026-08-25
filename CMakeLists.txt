@@ -52,6 +52,7 @@ set(livekit_ros2_bridge_private_include_dir "${CMAKE_CURRENT_SOURCE_DIR}/src")
 pkg_search_module(gstreamer REQUIRED IMPORTED_TARGET gstreamer-1.0)
 pkg_search_module(gstreamer-app REQUIRED IMPORTED_TARGET gstreamer-app-1.0)
 pkg_search_module(gstreamer-video REQUIRED IMPORTED_TARGET gstreamer-video-1.0)
+pkg_search_module(gstreamer-audio REQUIRED IMPORTED_TARGET gstreamer-audio-1.0)
 
 add_library(livekit_ros2_bridge_ros_interfaces STATIC
   src/ros_interfaces/definition_lookup.cpp
@@ -73,10 +74,12 @@ add_library(livekit_ros2_bridge_video STATIC
   src/video/gstreamer_pipeline.cpp
   src/video/gstreamer_stream.cpp
   src/video/ros_stream.cpp
-  src/video/pipeline_failure_handler.cpp
   src/video/stream_config.cpp
   src/video/stream_spec.cpp
   src/video/track_publisher.cpp
+  src/utils/percent_encode.cpp
+  src/utils/pipeline_failure_handler.cpp
+  src/utils/gstreamer_pipeline_validation.cpp
 )
 set_target_properties(livekit_ros2_bridge_video PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(livekit_ros2_bridge_video PUBLIC
@@ -93,6 +96,29 @@ target_link_libraries(livekit_ros2_bridge_video PRIVATE
   PkgConfig::gstreamer
   PkgConfig::gstreamer-app
   PkgConfig::gstreamer-video
+)
+
+add_library(livekit_ros2_bridge_audio STATIC
+  src/audio/gstreamer_pipeline.cpp
+  src/audio/gstreamer_stream.cpp
+  src/audio/stream_config.cpp
+  src/audio/stream_spec.cpp
+  src/audio/track_publisher.cpp
+)
+set_target_properties(livekit_ros2_bridge_audio PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_include_directories(livekit_ros2_bridge_audio PUBLIC
+  "${livekit_ros2_bridge_private_include_dir}"
+)
+target_link_libraries(livekit_ros2_bridge_audio PUBLIC
+  magic_enum::magic_enum
+  rclcpp::rclcpp
+  LiveKit::livekit
+  livekit_ros2_bridge_parameters
+)
+target_link_libraries(livekit_ros2_bridge_audio PRIVATE
+  PkgConfig::gstreamer
+  PkgConfig::gstreamer-app
+  PkgConfig::gstreamer-audio
 )
 
 add_library(${PROJECT_NAME} SHARED
@@ -131,6 +157,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
   livekit_ros2_bridge_parameters
   livekit_ros2_bridge_ros_interfaces
   livekit_ros2_bridge_video
+  livekit_ros2_bridge_audio
   LiveKit::livekit
   nlohmann_json::nlohmann_json
   OpenSSL::Crypto
@@ -252,6 +279,15 @@ if(BUILD_TESTING)
     PkgConfig::gstreamer-video
   )
   livekit_ros2_bridge_add_test(test_video_track_publisher test/cpp/test_video_track_publisher.cpp)
+  livekit_ros2_bridge_add_test(test_audio_stream_spec test/cpp/test_audio_stream_spec.cpp)
+  livekit_ros2_bridge_add_test(
+    test_audio_streams
+    test/cpp/test_audio_streams.cpp
+    PkgConfig::gstreamer
+    PkgConfig::gstreamer-app
+    PkgConfig::gstreamer-audio
+  )
+  livekit_ros2_bridge_add_test(test_audio_track_publisher test/cpp/test_audio_track_publisher.cpp)
 endif()
 
 ament_package()

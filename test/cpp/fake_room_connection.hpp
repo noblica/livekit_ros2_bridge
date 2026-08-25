@@ -27,8 +27,10 @@
 #include <utility>
 #include <vector>
 
+#include "livekit/audio_source.h"
 #include "livekit/data_track_error.h"
 #include "livekit/data_track_frame.h"
+#include "livekit/local_audio_track.h"
 #include "livekit/remote_participant.h"
 #include "livekit/result.h"
 #include "livekit/room_event_types.h"
@@ -83,6 +85,9 @@ struct FakeRoomConnectionState
   std::vector<std::string> published_video_track_names;
   std::vector<livekit::TrackPublishOptions> published_video_options;
   std::vector<std::string> unpublished_video_track_names;
+  std::vector<std::string> published_audio_track_names;
+  std::vector<livekit::TrackPublishOptions> published_audio_options;
+  std::vector<std::string> unpublished_audio_track_names;
   std::vector<std::string> unpublish_attempted_data_track_names;
   std::vector<std::string> unpublish_rejected_data_track_names;
 
@@ -98,9 +103,12 @@ struct FakeRoomConnectionState
     try_push_data_track_handler;
   std::function<void(const std::string & name)> publish_video_track_hook;
   std::function<void(const std::string & name)> unpublish_video_track_hook;
+  std::function<void(const std::string & name)> publish_audio_track_hook;
+  std::function<void(const std::string & name)> unpublish_audio_track_hook;
 
   bool throw_on_publish_data = false;
   bool throw_on_unpublish_video = false;
+  bool throw_on_unpublish_audio = false;
   int publish_data_call_count = 0;
 
   std::size_t publishedVideoTrackCount() const
@@ -295,6 +303,51 @@ public:
     }
   }
 
+  std::shared_ptr<livekit::LocalAudioTrack> publishAudioTrack(
+    const std::string & name,
+    const std::shared_ptr<livekit::AudioSource> & source,
+    const livekit::TrackPublishOptions & options) override
+  {
+    (void)source;
+    std::function<void(const std::string & name)> hook;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      state->event_log.push_back("publish_audio_track:" + name);
+      state->published_audio_track_names.push_back(name);
+      state->published_audio_options.push_back(options);
+      hook = state->publish_audio_track_hook;
+    }
+    if (hook) {
+      hook(name);
+    }
+
+    auto track = makeSyntheticAudioTrack();
+    std::lock_guard<std::mutex> lock(mutex_);
+    audio_track_names_[track.get()] = name;
+    return track;
+  }
+
+  void unpublishAudioTrack(const std::shared_ptr<livekit::LocalAudioTrack> & track) override
+  {
+    const std::string name = lookupAudioTrackName(track);
+    std::function<void(const std::string & name)> hook;
+    bool throw_on_unpublish_audio = false;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      state->event_log.push_back("unpublish_audio_track:" + name);
+      state->unpublished_audio_track_names.push_back(name);
+      audio_track_names_.erase(track.get());
+      hook = state->unpublish_audio_track_hook;
+      throw_on_unpublish_audio = state->throw_on_unpublish_audio;
+    }
+    if (hook) {
+      hook(name);
+    }
+    if (throw_on_unpublish_audio) {
+      throw std::runtime_error("simulated audio unpublish failure");
+    }
+  }
+
   void stop() override
   {
     std::function<void(FakeRoomConnection & connection)> hook;
@@ -408,6 +461,12 @@ public:
     return std::shared_ptr<livekit::LocalVideoTrack>(owner, reinterpret_cast<livekit::LocalVideoTrack *>(owner.get()));
   }
 
+  std::shared_ptr<livekit::LocalAudioTrack> makeSyntheticAudioTrack()
+  {
+    auto owner = std::make_shared<int>(next_track_id_.fetch_add(1, std::memory_order_relaxed));
+    return std::shared_ptr<livekit::LocalAudioTrack>(owner, reinterpret_cast<livekit::LocalAudioTrack *>(owner.get()));
+  }
+
   std::shared_ptr<FakeRoomConnectionState> state;
 
 private:
@@ -454,10 +513,18 @@ private:
     return it == video_track_names_.end() ? kUnknownDataTrackName : it->second;
   }
 
+  std::string lookupAudioTrackName(const std::shared_ptr<livekit::LocalAudioTrack> & track) const
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto it = audio_track_names_.find(track.get());
+    return it == audio_track_names_.end() ? kUnknownDataTrackName : it->second;
+  }
+
   mutable std::mutex mutex_;
   std::atomic<int> next_track_id_{1};
   std::map<const livekit::LocalDataTrack *, std::string> data_track_names_;
   std::map<const livekit::LocalVideoTrack *, std::string> video_track_names_;
+  std::map<const livekit::LocalAudioTrack *, std::string> audio_track_names_;
 };
 
 }  // namespace livekit_ros2_bridge

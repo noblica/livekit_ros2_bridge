@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "video/pipeline_failure_handler.hpp"
+#include "utils/pipeline_failure_handler.hpp"
 
 #include <utility>
 
-namespace livekit_ros2_bridge::video
+namespace livekit_ros2_bridge::utils
 {
 
 PipelineFailureHandler::PipelineFailureHandler(std::chrono::milliseconds delay, Callback callback)
@@ -101,4 +101,4 @@ void PipelineFailureHandler::run()
   }
 }
 
-}  // namespace livekit_ros2_bridge::video
+}  // namespace livekit_ros2_bridge::utils

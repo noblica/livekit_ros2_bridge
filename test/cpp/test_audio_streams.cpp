@@ -1,0 +1,144 @@
+// Copyright (c) 2025-present Polymath Robotics, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//    http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <cstdint>
+#include <memory>
+#include <mutex>
+#include <stdexcept>
+#include <string>
+
+#include "audio/gstreamer_pipeline.hpp"
+#include "audio/gstreamer_stream.hpp"
+#include "audio/track_publisher.hpp"
+#include "fake_room_connection.hpp"
+#include "gtest/gtest.h"
+#include "livekit/audio_frame.h"
+#include "ros_test_support.hpp"
+#include "utils/gstreamer_resources.hpp"
+
+namespace livekit_ros2_bridge::audio
+{
+
+namespace
+{
+
+// LiveKit 1.6.0+ requires livekit::initialize() before constructing livekit::AudioSource; see ScopedLiveKitInit.
+const test_support::ScopedLiveKitInit kLiveKitInit;
+
+StreamSpec makeOtherSpec()
+{
+  StreamSpec spec;
+  spec.stream_key = "other_audio:test";
+  spec.track_name = "lkros.audio.other.test";
+  spec.input = OtherInput{"test", "", ""};
+  return spec;
+}
+
+PipelineCallbacks makeNoOpPipelineCallbacks()
+{
+  return PipelineCallbacks{
+    []() { return false; },
+    [](const livekit::AudioFrame &) {},
+    [](const std::string &) {},
+    [](const std::string &) {},
+    [](const std::string &) {},
+  };
+}
+
+void expectStartErrorContains(GStreamerPipeline & pipeline, const std::string & description, const char * fragment)
+{
+  try {
+    pipeline.start(description);
+    FAIL() << "Expected start to throw an error containing '" << fragment << "'";
+  } catch (const std::runtime_error & error) {
+    EXPECT_NE(std::string(error.what()).find(fragment), std::string::npos) << "actual error: " << error.what();
+  }
+}
+
+class AudioStreamTest : public ::testing::Test
+{
+protected:
+  static void SetUpTestSuite()
+  {
+    utils::ensureGStreamerInitialized();
+    static test_support::ScopedRclcppInit rclcpp_init;
+  }
+};
+
+TEST_F(AudioStreamTest, PipelineStartRejectsNamedNonAppSink)
+{
+  GStreamerPipeline pipeline(makeNoOpPipelineCallbacks());
+
+  expectStartErrorContains(
+    pipeline, "audiotestsrc is-live=true ! fakesink name=bridge_audio_sink", "must be a GstAppSink");
+}
+
+TEST_F(AudioStreamTest, OtherAudioLifecycleIsIdempotent)
+{
+  StreamSpec spec = makeOtherSpec();
+  spec.input = OtherInput{"test", "audiotestsrc is-live=true wave=sine", ""};
+
+  FakeRoomConnection connection;
+  TrackPublisher publisher(connection, spec);
+  GStreamerStream stream(spec, publisher);
+
+  stream.start();
+  stream.close();
+  stream.close();
+}
+
+TEST_F(AudioStreamTest, RealPipelineProducesMono48kFrames)
+{
+  std::mutex mutex;
+  std::condition_variable condition;
+  bool frame_captured = false;
+  int sample_rate = 0;
+  int channels = 0;
+
+  PipelineCallbacks callbacks{
+    []() { return false; },
+    [&](const livekit::AudioFrame & frame) {
+      std::lock_guard<std::mutex> lock(mutex);
+      sample_rate = frame.sampleRate();
+      channels = frame.numChannels();
+      frame_captured = true;
+      condition.notify_all();
+    },
+    [](const std::string &) {},
+    [](const std::string &) {},
+    [](const std::string &) {},
+  };
+  GStreamerPipeline pipeline(std::move(callbacks));
+
+  pipeline.start(
+    "audiotestsrc is-live=true wave=sine ! audioconvert ! audioresample ! "
+    "audio/x-raw,format=S16LE,channels=1,rate=48000 ! appsink name=bridge_audio_sink sync=false drop=true "
+    "max-buffers=1");
+
+  std::unique_lock<std::mutex> lock(mutex);
+  const bool captured = condition.wait_for(lock, std::chrono::seconds(5), [&]() { return frame_captured; });
+  lock.unlock();
+  pipeline.stop();
+
+  ASSERT_TRUE(captured) << "no audio frame captured from the real pipeline";
+  EXPECT_EQ(sample_rate, 48000);
+  EXPECT_EQ(channels, 1);
+}
+
+}  // namespace
+
+}  // namespace livekit_ros2_bridge::audio

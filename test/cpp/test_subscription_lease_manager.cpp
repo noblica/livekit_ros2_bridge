@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "access_policy.hpp"
+#include "audio/stream_spec.hpp"
 #include "fake_room_connection.hpp"
 #include "gtest/gtest.h"
 #include "nlohmann/json.hpp"
@@ -145,11 +146,21 @@ video::StreamConfig makeOtherSourceConfig()
   return config;
 }
 
+audio::StreamConfig makeOtherAudioSourceConfig()
+{
+  audio::StreamConfig config = audio::makeDefaultConfig();
+  audio::OtherSource source;
+  source.source_fragment = "audiotestsrc is-live=true wave=sine";
+  config.other_sources.emplace("/sources/cab_mic", std::move(source));
+  return config;
+}
+
 SubscriptionLeaseManager makeLeaseManager(
   rclcpp::Node & node,
   FakeRoomConnection & session,
   AccessPolicy access_policy,
   const video::StreamConfig * video_config = nullptr,
+  const audio::StreamConfig * audio_config = nullptr,
   SubscriptionLeaseManager::Clock::duration heartbeat_lease_duration = std::chrono::seconds(45))
 {
   return SubscriptionLeaseManager(
@@ -161,6 +172,7 @@ SubscriptionLeaseManager makeLeaseManager(
     std::move(access_policy),
     nullptr,
     video_config,
+    audio_config,
     heartbeat_lease_duration);
 }
 
@@ -168,11 +180,13 @@ SubscriptionLeaseManager makeLeaseManager(
   rclcpp::Node & node,
   FakeRoomConnection & session,
   const video::StreamConfig * video_config = nullptr,
+  const audio::StreamConfig * audio_config = nullptr,
   SubscriptionLeaseManager::Clock::duration heartbeat_lease_duration = std::chrono::seconds(45))
 {
   AccessPolicyConfig access_policy_config;
   access_policy_config.subscribe.allow = {"*"};
-  return makeLeaseManager(node, session, AccessPolicy(access_policy_config), video_config, heartbeat_lease_duration);
+  return makeLeaseManager(
+    node, session, AccessPolicy(access_policy_config), video_config, audio_config, heartbeat_lease_duration);
 }
 
 SubscriptionDemand makeTopicDemand(const std::string & name, std::optional<int> interval_ms = std::nullopt)
@@ -183,6 +197,11 @@ SubscriptionDemand makeTopicDemand(const std::string & name, std::optional<int> 
 SubscriptionDemand makeOtherVideoDemand(const std::string & name, std::optional<int> interval_ms = std::nullopt)
 {
   return SubscriptionDemand{SubscriptionTargetKind::OtherVideo, name, interval_ms};
+}
+
+SubscriptionDemand makeOtherAudioDemand(const std::string & name, std::optional<int> interval_ms = std::nullopt)
+{
+  return SubscriptionDemand{SubscriptionTargetKind::OtherAudio, name, interval_ms};
 }
 
 SubscriptionHeartbeat makeHeartbeat(
@@ -209,8 +228,14 @@ std::vector<std::uint8_t> heartbeatPayloadBytes(const SubscriptionHeartbeat & he
   }
 
   for (const auto & demand : heartbeat.demands) {
+    const char * kind = "topic";
+    if (demand.kind == SubscriptionTargetKind::OtherVideo) {
+      kind = "other_video";
+    } else if (demand.kind == SubscriptionTargetKind::OtherAudio) {
+      kind = "other_audio";
+    }
     nlohmann::json entry = {
-      {"kind", demand.kind == SubscriptionTargetKind::OtherVideo ? "other_video" : "topic"},
+      {"kind", kind},
       {"name", demand.name},
     };
     if (demand.preferred_interval_ms.has_value()) {
@@ -358,9 +383,12 @@ protected:
     access_policy_ = makeSubscribePolicy({"*"});
   }
 
-  SubscriptionLeaseManager makeManager(AccessPolicy access_policy, const video::StreamConfig * video_config = nullptr)
+  SubscriptionLeaseManager makeManager(
+    AccessPolicy access_policy,
+    const video::StreamConfig * video_config = nullptr,
+    const audio::StreamConfig * audio_config = nullptr)
   {
-    return makeLeaseManager(*node_, *fake_room_connection_, std::move(access_policy), video_config);
+    return makeLeaseManager(*node_, *fake_room_connection_, std::move(access_policy), video_config, audio_config);
   }
 
   std::shared_ptr<rclcpp::Node> node_;
@@ -541,7 +569,7 @@ TEST(SubscriptionLeaseManagerTest, PruneExpiredLeasesKeepsSubscriptionAndRecompu
   executor.add_node(node);
   ASSERT_TRUE(waitForTopic<sensor_msgs::msg::BatteryState>(executor, node, topic));
 
-  auto registry = makeLeaseManager(*node, session, nullptr, kShortHeartbeatLeaseDuration);
+  auto registry = makeLeaseManager(*node, session, nullptr, nullptr, kShortHeartbeatLeaseDuration);
 
   sendHeartbeat(registry, *session.state, "alice", makeHeartbeat({makeTopicDemand(topic, 50)}));
   std::this_thread::sleep_for(kShortHeartbeatLeaseDuration + kLeaseWaitBuffer);
@@ -577,7 +605,7 @@ TEST(SubscriptionLeaseManagerTest, OmittedHeartbeatTargetExpiresWhileRenewedSibl
   ASSERT_TRUE(waitForTopic<sensor_msgs::msg::BatteryState>(executor, node, topic_a));
   ASSERT_TRUE(waitForTopic<sensor_msgs::msg::BatteryState>(executor, node, topic_b));
 
-  auto registry = makeLeaseManager(*node, session, nullptr, kShortHeartbeatLeaseDuration);
+  auto registry = makeLeaseManager(*node, session, nullptr, nullptr, kShortHeartbeatLeaseDuration);
 
   sendHeartbeat(
     registry, *session.state, "alice", makeHeartbeat({makeTopicDemand(topic_a, 0), makeTopicDemand(topic_b, 0)}));
@@ -704,7 +732,7 @@ TEST(SubscriptionLeaseManagerTest, VideoLeaseExpiryBeforeFirstFrameAllowsLaterRe
   executor.add_node(node);
   ASSERT_TRUE(waitForTopic<sensor_msgs::msg::Image>(executor, node, topic));
 
-  auto registry = makeLeaseManager(*node, session, nullptr, kShortHeartbeatLeaseDuration);
+  auto registry = makeLeaseManager(*node, session, nullptr, nullptr, kShortHeartbeatLeaseDuration);
   const auto first =
     sendHeartbeatAndExtractStatus(registry, *session.state, "alice", makeHeartbeat({makeTopicDemand(topic, 0)}));
   const std::string track_name = first["delivery"]["track_name"].get<std::string>();
@@ -859,7 +887,7 @@ TEST(SubscriptionLeaseManagerTest, PruneExpiredLeasesUnpublishesPublishedTrack)
   executor.add_node(node);
   ASSERT_TRUE(waitForTopic<sensor_msgs::msg::BatteryState>(executor, node, topic));
 
-  auto registry = makeLeaseManager(*node, session, nullptr, kShortHeartbeatLeaseDuration);
+  auto registry = makeLeaseManager(*node, session, nullptr, nullptr, kShortHeartbeatLeaseDuration);
   const auto status =
     sendHeartbeatAndExtractStatus(registry, *session.state, "alice", makeHeartbeat({makeTopicDemand(topic, 0)}));
   const std::string track_name = status["delivery"]["track_name"].get<std::string>();
@@ -882,7 +910,7 @@ TEST(SubscriptionLeaseManagerTest, PruneExpiredLeasesUnpublishesPublishedVideoTr
   executor.add_node(node);
   ASSERT_TRUE(waitForTopic<sensor_msgs::msg::Image>(executor, node, topic));
 
-  auto registry = makeLeaseManager(*node, session, nullptr, kShortHeartbeatLeaseDuration);
+  auto registry = makeLeaseManager(*node, session, nullptr, nullptr, kShortHeartbeatLeaseDuration);
   const auto status =
     sendHeartbeatAndExtractStatus(registry, *session.state, "alice", makeHeartbeat({makeTopicDemand(topic, 0)}));
   const std::string track_name = status["delivery"]["track_name"].get<std::string>();
@@ -1078,6 +1106,66 @@ TEST_F(SubscriptionLeaseManagerHeartbeatTest, MissingOtherVideoReturnsErrorOnSou
     "/sources/missing",
     "not_found",
     "Unknown other video source '/sources/missing'.");
+}
+
+TEST_F(SubscriptionLeaseManagerHeartbeatTest, OtherAudioBypassesRosAccessPolicyAndReturnsAudioStatus)
+{
+  const AccessPolicy deny_all = makeSubscribePolicy({}, {"*"});
+  const audio::StreamConfig audio_config = makeOtherAudioSourceConfig();
+
+  auto manager = makeManager(deny_all, nullptr, &audio_config);
+
+  sendHeartbeat(manager, *state_, "requester-1", makeHeartbeat({makeOtherAudioDemand("/sources/cab_mic")}));
+
+  const auto status = extractPublishedStatusEntry(*state_, "requester-1");
+  expectStatusEntry(status, "other_audio", "/sources/cab_mic", "active");
+  const auto & delivery = status["delivery"];
+  EXPECT_EQ(delivery["kind"], "audio");
+  EXPECT_EQ(delivery["track_name"], "lkros.audio.other.%2Fsources%2Fcab_mic");
+}
+
+TEST_F(SubscriptionLeaseManagerHeartbeatTest, MissingOtherAudioReturnsErrorOnSourceIdField)
+{
+  const audio::StreamConfig audio_config = makeOtherAudioSourceConfig();
+
+  auto manager = makeManager(access_policy_, nullptr, &audio_config);
+
+  sendHeartbeat(manager, *state_, "requester-1", makeHeartbeat({makeOtherAudioDemand("/sources/missing")}));
+
+  expectPublishedError(
+    *state_,
+    "requester-1",
+    "other_audio",
+    "/sources/missing",
+    "not_found",
+    "Unknown other audio source '/sources/missing'.");
+}
+
+TEST(SubscriptionLeaseManagerTest, EquivalentOtherAudioRequestsShareCanonicalSubscriptionAndTrack)
+{
+  ScopedRclcppInit init;
+  auto node = std::make_shared<rclcpp::Node>("subscription_registry_audio_canonical_other_test");
+  FakeRoomConnection session;
+  const audio::StreamConfig audio_config = makeOtherAudioSourceConfig();
+  const std::string canonical_source = "/sources/cab_mic";
+  const std::string variant_source = "  /sources/cab_mic  ";
+
+  auto registry = makeLeaseManager(*node, session, nullptr, &audio_config);
+
+  const auto first = sendHeartbeatAndExtractStatus(
+    registry, *session.state, "alice", makeHeartbeat({makeOtherAudioDemand(canonical_source)}));
+  const std::string track_name = first["delivery"]["track_name"].get<std::string>();
+  ASSERT_TRUE(waitUntil([&session]() { return !session.state->published_audio_track_names.empty(); }));
+
+  const auto second = sendHeartbeatAndExtractStatus(
+    registry, *session.state, "bob", makeHeartbeat({makeOtherAudioDemand(variant_source)}));
+
+  EXPECT_EQ(first["name"], canonical_source);
+  EXPECT_EQ(second["name"], canonical_source);
+  EXPECT_EQ(first["delivery"]["kind"], "audio");
+  EXPECT_EQ(second["delivery"]["track_name"], track_name);
+
+  EXPECT_EQ(session.state->published_audio_track_names, (std::vector<std::string>{track_name}));
 }
 
 TEST_F(SubscriptionLeaseManagerHeartbeatTest, ActiveSubscriptionPublishesSubscriptionStatusEnvelope)
@@ -1283,7 +1371,7 @@ protected:
     SubscriptionLeaseManager::Clock::duration heartbeat_lease_duration = std::chrono::seconds(45))
   {
     return makeLeaseManager(
-      *node_, *fake_room_connection_, std::move(access_policy), nullptr, heartbeat_lease_duration);
+      *node_, *fake_room_connection_, std::move(access_policy), nullptr, nullptr, heartbeat_lease_duration);
   }
 
   // Sends a heartbeat and clears the published_data_calls so the next call starts fresh.

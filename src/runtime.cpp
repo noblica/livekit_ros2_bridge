@@ -46,7 +46,8 @@ Runtime::Runtime(Runtime::NodeInterfaces interfaces, std::unique_ptr<RoomConnect
     *room_connection_,
     config_.access_policy,
     &config_.subscription_qos,
-    &config_.video_stream)
+    &config_.video_stream,
+    &config_.audio_stream)
 , rpc_router_(
     interfaces.get_node_graph_interface(),
     config_.access_policy,

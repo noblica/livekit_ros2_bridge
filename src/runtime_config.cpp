@@ -24,6 +24,7 @@
 #include <unordered_set>
 #include <utility>
 
+#include "audio/stream_config.hpp"
 #include "livekit_ros2_bridge/livekit_ros2_bridge_parameters.hpp"
 #include "rclcpp/logging.hpp"
 #include "rmw/qos_string_conversions.h"
@@ -165,6 +166,9 @@ RuntimeConfig loadRuntimeConfig(const rclcpp::node_interfaces::NodeParametersInt
 
     stage = "video_config";
     config.video_stream = video::loadConfig(params);
+
+    stage = "audio_config";
+    config.audio_stream = audio::loadConfig(params);
 
     return config;
   } catch (...) {

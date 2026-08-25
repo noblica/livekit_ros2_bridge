@@ -24,6 +24,7 @@
 #include <utility>
 
 #include "livekit/room_event_types.h"
+#include "utils/gstreamer_pipeline_validation.hpp"
 #include "utils/ros_resource_name_utils.hpp"
 #include "utils/trim.hpp"
 #include "video/gstreamer_resources.hpp"
@@ -138,125 +139,8 @@ livekit::TrackPublishOptions parsePublishOptions(const EntryT & entry, const liv
   return options;
 }
 
-struct EndpointCounts
-{
-  guint appsrc = 0;
-  guint appsink = 0;
-  guint bridge_appsrc = 0;
-  guint bridge_appsink = 0;
-};
-
-struct EndpointLayout
-{
-  guint appsrc = 0;
-  guint appsink = 1;
-  guint bridge_appsrc = 0;
-  guint bridge_appsink = 1;
-
-  constexpr bool matches(const EndpointCounts & counts) const noexcept
-  {
-    return counts.appsrc == appsrc && counts.appsink == appsink && counts.bridge_appsrc == bridge_appsrc &&
-           counts.bridge_appsink == bridge_appsink;
-  }
-
-  constexpr bool hasUserEndpoint(const EndpointCounts & counts) const noexcept
-  {
-    if (
-      counts.appsrc > appsrc || counts.appsink > appsink || counts.bridge_appsrc > bridge_appsrc ||
-      counts.bridge_appsink > bridge_appsink)
-    {
-      return true;
-    }
-
-    return (counts.appsrc != 0U && counts.bridge_appsrc == 0U) || (counts.appsink != 0U && counts.bridge_appsink == 0U);
-  }
-};
-
-constexpr EndpointLayout kRosTopicRuleLayout{1U, 1U, 1U, 1U};
-constexpr EndpointLayout kOtherSourceLayout{};
-
-EndpointCounts countEndpoints(const std::string & context, GstElement * pipeline)
-{
-  EndpointCounts counts;
-
-  GstIteratorPtr iterator(gst_bin_iterate_recurse(GST_BIN(pipeline)));
-  GValueSlot item;
-  while (true) {
-    const GstIteratorResult result = gst_iterator_next(iterator.get(), item.get());
-    if (result == GST_ITERATOR_DONE) {
-      break;
-    }
-    if (result == GST_ITERATOR_RESYNC) {
-      gst_iterator_resync(iterator.get());
-      continue;
-    }
-    if (result != GST_ITERATOR_OK) {
-      throw std::runtime_error(context + " could not inspect parsed GStreamer elements");
-    }
-
-    auto * element = GST_ELEMENT(g_value_get_object(item.get()));
-    const GstElementFactory * factory = gst_element_get_factory(element);
-    const std::string_view factory_name = factory == nullptr ? "" : GST_OBJECT_NAME(factory);
-    const std::string_view element_name = GST_ELEMENT_NAME(element);
-
-    const bool is_appsrc = factory_name == "appsrc";
-    const bool is_appsink = factory_name == "appsink";
-    if (is_appsrc) {
-      ++counts.appsrc;
-    }
-    if (is_appsink) {
-      ++counts.appsink;
-    }
-
-    if (element_name == kBridgeAppSrcName) {
-      if (!is_appsrc) {
-        throw std::runtime_error(context + " must not reuse reserved element name '" + kBridgeAppSrcName + "'");
-      }
-      ++counts.bridge_appsrc;
-    }
-    if (element_name == kBridgeAppSinkName) {
-      if (!is_appsink) {
-        throw std::runtime_error(context + " must not reuse reserved element name '" + kBridgeAppSinkName + "'");
-      }
-      ++counts.bridge_appsink;
-    }
-
-    item.reset();
-  }
-
-  return counts;
-}
-
-void validatePipeline(const std::string & context, const std::string & description, const EndpointLayout & layout)
-{
-  ensureGStreamerInitialized();
-
-  GError * raw_error = nullptr;
-  GstElementPtr pipeline(gst_parse_launch(description.c_str(), &raw_error));
-  GErrorPtr error(raw_error);
-  // Prefer the endpoint-ownership error when a partial parse already shows it.
-  if (error != nullptr && pipeline != nullptr) {
-    const EndpointCounts counts = countEndpoints(context, pipeline.get());
-    if (layout.hasUserEndpoint(counts)) {
-      throw std::runtime_error(context + " must not define appsrc/appsink endpoints; the bridge owns them");
-    }
-  }
-  if (error != nullptr) {
-    throw std::runtime_error(context + " has invalid GStreamer syntax: " + error->message);
-  }
-  if (pipeline == nullptr) {
-    throw std::runtime_error(context + " has invalid GStreamer syntax: gst_parse_launch returned null");
-  }
-
-  if (!GST_IS_BIN(pipeline.get())) {
-    throw std::runtime_error(context + " must parse to a GstBin");
-  }
-
-  const EndpointCounts counts = countEndpoints(context, pipeline.get());
-  if (!layout.matches(counts)) {
-    throw std::runtime_error(context + " must not define appsrc/appsink endpoints; the bridge owns them");
-  }
-}
+constexpr utils::EndpointLayout kRosTopicRuleLayout{1U, 1U, 1U, 1U, kBridgeAppSrcName, kBridgeAppSinkName};
+constexpr utils::EndpointLayout kOtherSourceLayout{0U, 1U, 0U, 1U, nullptr, kBridgeAppSinkName};
 
 template <typename EntryMap>
 const typename EntryMap::mapped_type & requireUniqueEntry(

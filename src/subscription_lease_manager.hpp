@@ -27,6 +27,7 @@
 #include <vector>
 
 #include "access_policy.hpp"
+#include "audio/stream_spec.hpp"
 #include "protocol/echo_once.hpp"
 #include "protocol/subscriptions.hpp"
 #include "rclcpp/clock.hpp"
@@ -52,6 +53,11 @@ namespace video
 class TrackPublisher;
 }  // namespace video
 
+namespace audio
+{
+class TrackPublisher;
+}  // namespace audio
+
 // Maintains per-requester leases for shared publishers and reports subscription status.
 class SubscriptionLeaseManager final
 {
@@ -70,6 +76,7 @@ public:
     AccessPolicy access_policy,
     const SubscriptionQosConfig * qos_config = nullptr,
     const video::StreamConfig * video_stream_config = nullptr,
+    const audio::StreamConfig * audio_stream_config = nullptr,
     Clock::duration heartbeat_lease_duration = std::chrono::seconds(45));
   ~SubscriptionLeaseManager();
 
@@ -106,7 +113,8 @@ private:
 
   using DataPublisher = std::shared_ptr<DataTrackPublisher>;
   using VideoPublisher = std::shared_ptr<video::TrackPublisher>;
-  using Runtime = std::variant<DataPublisher, VideoPublisher>;
+  using AudioPublisher = std::shared_ptr<audio::TrackPublisher>;
+  using Runtime = std::variant<DataPublisher, VideoPublisher, AudioPublisher>;
 
   struct Subscription
   {
@@ -125,6 +133,7 @@ private:
     std::string interface_type;
     int preferred_interval_ms = 0;
     std::optional<video::StreamSpec> video_spec;
+    std::optional<audio::StreamSpec> audio_spec;
   };
 
   using Subscriptions = std::unordered_map<std::string, Subscription>;
@@ -142,6 +151,7 @@ private:
   AccessPolicy access_policy_;
   const SubscriptionQosConfig * qos_config_;
   const video::StreamConfig * video_stream_config_;
+  const audio::StreamConfig * audio_stream_config_;
   Clock::duration heartbeat_lease_duration_;
 
   std::atomic<bool> is_shutdown_{false};
@@ -162,8 +172,10 @@ private:
     const std::string & requester_identity, const std::optional<std::string> & session_id, Clock::time_point expiry);
   void pruneSessionLeases(Clock::time_point now);
   const video::StreamConfig & videoStreamConfig() const;
+  const audio::StreamConfig & audioStreamConfig() const;
   video::StreamSpec resolveVideoSpec(
     SubscriptionTargetKind kind, const std::string & name, const std::string & interface_type) const;
+  audio::StreamSpec resolveAudioSpec(SubscriptionTargetKind kind, const std::string & name) const;
   ResolvedDemand resolveDemand(const SubscriptionDemand & demand) const;
   void resolveDemandDelivery(ResolvedDemand & demand) const;
   SubscriptionStatus create(const ResolvedDemand & demand, const std::string & requester_identity, const Lease & lease);

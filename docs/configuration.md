@@ -14,9 +14,13 @@ If a change affects LiveKit connection settings, access rules, QoS override matc
     - [Defaults](#defaults)
     - [ROS topics](#ros-topics)
     - [Other video sources](#other-video-sources)
+  - [Audio](#audio)
+    - [Defaults](#audio-defaults)
+    - [Other audio sources](#other-audio-sources)
   - [QoS](#qos)
 - [Common scenarios](#common-scenarios)
   - [RTSP or device inputs](#rtsp-or-device-inputs)
+  - [Cab microphones](#cab-microphones)
 
 ## Reference
 
@@ -165,6 +169,52 @@ Lookup notes:
 - other video track names percent-encode bytes outside RFC 3986 unreserved characters
 - other video sources are not gated by `access.rules.subscribe.*`; availability is controlled by which ids exist in `video_other_ids` and `video.other.*`
 
+### Audio
+
+#### Audio defaults
+
+| Parameter | Default | Allowed values | Notes |
+| --- | --- | --- | --- |
+| `audio.publish.max_bitrate_bps` | `0` | int `>= 0` | Global LiveKit max audio bitrate override in bps. `0` uses SDK defaults. |
+| `audio.publish.dtx` | `auto` | `auto`, `enabled`, `disabled` | Global LiveKit DTX override. |
+| `audio.publish.red` | `auto` | `auto`, `enabled`, `disabled` | Global LiveKit RED override. |
+
+Notes:
+
+- `auto` leaves the LiveKit SDK default (off) in place
+- per-source `publish.*` values override these globals; `-1` (bitrate) or `""` (dtx/red) inherit the global
+
+#### Other audio sources
+
+| Parameter | Default | Allowed values | Notes |
+| --- | --- | --- | --- |
+| `audio_other_ids` | `[]` | array of ids | Other audio ids to load from `audio.other.<id>.*` |
+| `audio.other.<id>.source` | — | GStreamer fragment | Required. Ingress fragment for this other audio source (e.g. `audiotestsrc`, `pulsesrc`). |
+| `audio.other.<id>.transform` | `""` | GStreamer fragment | Optional transform fragment inserted after other audio ingress |
+| `audio.other.<id>.publish.max_bitrate_bps` | `-1` | int `>= -1` | Optional LiveKit max audio bitrate override in bps. `-1` inherits from `audio.publish.max_bitrate_bps`. |
+| `audio.other.<id>.publish.dtx` | `""` | `""`, `auto`, `enabled`, `disabled` | Optional LiveKit DTX override. Empty inherits from `audio.publish.dtx`. |
+| `audio.other.<id>.publish.red` | `""` | `""`, `auto`, `enabled`, `disabled` | Optional LiveKit RED override. Empty inherits from `audio.publish.red`. |
+
+Notes:
+
+- duplicate ids in `audio_other_ids` are rejected at startup
+- every entry under `audio.other.<id>.*` must have a matching id in `audio_other_ids`
+- `audio_other_ids` stays at the root because `generate_parameter_library` 0.6 cannot nest it in the supported distro matrix
+- `source` is required and must be non-empty after trimming
+- `source` should start with a concrete ingress element such as `audiotestsrc` or `pulsesrc`
+- `transform` is optional and sits between your ingress and the bridge-owned tail
+- the bridge always appends `queue max-size-time=100ms leaky=downstream ! audioconvert ! audioresample ! audio/x-raw,format=S16LE,channels=1,rate=48000 ! appsink`
+- neither `source` nor `transform` may define `appsrc` or `appsink`; the bridge owns those endpoints
+- startup validates `source` plus `transform` with GStreamer, but runtime failures can still happen when a stream actually starts
+- every configured source publishes as exactly one mono audio track; stereo is client-side routing of two mono tracks
+
+Lookup notes:
+
+- clients request these sources with `kind: "other_audio"` and the source id as `name`
+- lookup trims only surrounding whitespace from the requested name
+- other audio track names percent-encode bytes outside RFC 3986 unreserved characters
+- other audio sources are not gated by `access.rules.subscribe.*`; availability is controlled by which ids exist in `audio_other_ids` and `audio.other.*`
+
 ### QoS
 
 | Parameter | Default | Allowed values | Notes |
@@ -242,5 +292,59 @@ Use `video.other.*` when the bridge should ingest video directly from GStreamer 
    - the `name` is the trimmed source id
    - an active entry reports `delivery.kind: "video"`
    - the track name is deterministic, for example `lkros.video.other.front_rtsp`
+   - if the source id contains reserved bytes, the track-name suffix is percent-encoded
+   - if a client asks for a source that does not exist, the bridge reports `not_found`
+
+### Cab microphones
+
+Use `audio.other.*` when the bridge should ingest audio directly from GStreamer instead of subscribing to a ROS audio topic. Each configured source becomes one mono audio track; route two tracks to left/right speakers for a stereo-operator experience.
+
+1. Define one or more other audio ids and give each one a `source` fragment.
+
+   ```yaml
+   livekit_ros2_bridge:
+     ros__parameters:
+       audio_other_ids: ["left_mic", "right_mic"]
+
+       audio.other.left_mic.source: "pulsesrc device=alsa_input.pci-0000_00_1f.3.analog-stereo"
+       audio.other.left_mic.transform: "volume volume=0.8"
+       audio.other.left_mic.publish.max_bitrate_bps: 64000
+
+       audio.other.right_mic.source: "pulsesrc device=alsa_input.pci-0000_00_1f.3.analog-stereo"
+       audio.other.right_mic.publish.dtx: "enabled"
+   ```
+
+2. Keep the pipeline boundaries in the right place.
+
+   - `source` should start with the ingress stage such as `audiotestsrc` or `pulsesrc`
+   - `transform` is optional and should contain only middle-of-pipeline processing stages
+   - do not put `appsrc` or `appsink` into either fragment; the bridge owns those endpoints and appends its own queue/convert/resample/mono-48k/appsink tail
+   - leave `audio.publish.*` and per-source `publish.*` unset unless you need to force bitrate, DTX, or RED behavior
+   - other audio sources do not need `access.rules.subscribe.allow`; they become available because they are declared in `audio_other_ids`
+
+3. Request the source by id from the client with `kind: "other_audio"`.
+
+   ```json
+   {
+     "v": 2,
+     "type": "lkros.heartbeat",
+     "subscriptions": [
+       {
+         "kind": "other_audio",
+         "name": "left_mic"
+       },
+       {
+         "kind": "other_audio",
+         "name": "right_mic"
+       }
+     ]
+   }
+   ```
+
+4. Expect audio delivery in `lkros.status`.
+
+   - the `name` is the trimmed source id
+   - an active entry reports `delivery.kind: "audio"`
+   - the track name is deterministic, for example `lkros.audio.other.left_mic`
    - if the source id contains reserved bytes, the track-name suffix is percent-encoded
    - if a client asks for a source that does not exist, the bridge reports `not_found`

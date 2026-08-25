@@ -36,6 +36,7 @@ inline constexpr char kEchoOnceTopic[] = "lkros.echo.once";
 inline constexpr char kCdrContentType[] = "application/x-ros-cdr";
 
 inline constexpr char kVideoDeliveryKind[] = "video";
+inline constexpr char kAudioDeliveryKind[] = "audio";
 inline constexpr char kDataDeliveryKind[] = "data";
 
 inline constexpr int kProtocolVersion = 2;

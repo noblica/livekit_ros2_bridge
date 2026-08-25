@@ -20,7 +20,7 @@
 #include <mutex>
 #include <thread>
 
-namespace livekit_ros2_bridge::video
+namespace livekit_ros2_bridge::utils
 {
 
 // Coalesces repeated GStreamer EOS/error callbacks into one stream-owned callback.
@@ -54,4 +54,4 @@ private:
   std::thread worker_;
 };
 
-}  // namespace livekit_ros2_bridge::video
+}  // namespace livekit_ros2_bridge::utils

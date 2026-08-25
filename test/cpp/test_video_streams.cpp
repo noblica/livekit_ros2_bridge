@@ -27,10 +27,10 @@
 #include "ros_test_support.hpp"
 #include "sensor_msgs/msg/compressed_image.hpp"
 #include "sensor_msgs/msg/image.hpp"
+#include "utils/pipeline_failure_handler.hpp"
 #include "video/gstreamer_pipeline.hpp"
 #include "video/gstreamer_resources.hpp"
 #include "video/gstreamer_stream.hpp"
-#include "video/pipeline_failure_handler.hpp"
 #include "video/ros_stream.hpp"
 #include "video/track_publisher.hpp"
 
@@ -135,7 +135,7 @@ TEST_F(StreamTest, PipelineStartCapturesRequiredAppSrcHandle)
 TEST_F(StreamTest, PipelineFailureHandlerCoalescesPendingFailures)
 {
   std::atomic<int> callback_count{0};
-  PipelineFailureHandler handler(std::chrono::seconds(10), [&]() { ++callback_count; });
+  utils::PipelineFailureHandler handler(std::chrono::seconds(10), [&]() { ++callback_count; });
 
   EXPECT_TRUE(handler.schedule());
   EXPECT_FALSE(handler.schedule());
@@ -151,7 +151,7 @@ TEST_F(StreamTest, PipelineFailureHandlerRunsScheduledFailure)
   std::mutex mutex;
   std::condition_variable condition;
   int callback_count = 0;
-  PipelineFailureHandler handler(std::chrono::milliseconds::zero(), [&]() {
+  utils::PipelineFailureHandler handler(std::chrono::milliseconds::zero(), [&]() {
     std::lock_guard<std::mutex> lock(mutex);
     ++callback_count;
     condition.notify_all();
@@ -170,11 +170,11 @@ TEST_F(StreamTest, PipelineFailureHandlerCoalescesWhileCallbackRuns)
 {
   std::mutex mutex;
   std::condition_variable condition;
-  std::unique_ptr<PipelineFailureHandler> handler;
+  std::unique_ptr<utils::PipelineFailureHandler> handler;
   int callback_count = 0;
   bool reschedule_checked = false;
   bool reschedule_accepted = true;
-  handler = std::make_unique<PipelineFailureHandler>(std::chrono::milliseconds::zero(), [&]() {
+  handler = std::make_unique<utils::PipelineFailureHandler>(std::chrono::milliseconds::zero(), [&]() {
     {
       std::lock_guard<std::mutex> lock(mutex);
       ++callback_count;
@@ -201,7 +201,7 @@ TEST_F(StreamTest, PipelineFailureHandlerCoalescesWhileCallbackRuns)
 TEST_F(StreamTest, PipelineFailureHandlerCloseCancelsDelayedFailure)
 {
   std::atomic<int> callback_count{0};
-  PipelineFailureHandler handler(std::chrono::seconds(10), [&]() { ++callback_count; });
+  utils::PipelineFailureHandler handler(std::chrono::seconds(10), [&]() { ++callback_count; });
 
   EXPECT_TRUE(handler.schedule());
   handler.close();

@@ -70,6 +70,10 @@ livekit_ros2_bridge:
     type: string_array
     default_value: []
     description: "Other video ids defined under video.other.<id>."
+  audio_other_ids:
+    type: string_array
+    default_value: []
+    description: "Other audio ids defined under audio.other.<id>."
 
   video:
     publish:
@@ -166,6 +170,58 @@ livekit_ros2_bridge:
             type: string
             default_value: ""
             description: "Optional LiveKit simulcast override for this other video source. Empty inherits from video.publish.simulcast."
+            validation:
+              one_of<>: [["", "auto", "enabled", "disabled"]]
+
+  audio:
+    publish:
+      max_bitrate_bps:
+        type: int
+        default_value: 0
+        description: "Global LiveKit max audio bitrate override in bps. 0 uses SDK defaults."
+        validation:
+          gt_eq<>: [0]
+      dtx:
+        type: string
+        default_value: "auto"
+        description: "Global LiveKit DTX override: auto, enabled, or disabled."
+        validation:
+          one_of<>: [["auto", "enabled", "disabled"]]
+      red:
+        type: string
+        default_value: "auto"
+        description: "Global LiveKit RED override: auto, enabled, or disabled."
+        validation:
+          one_of<>: [["auto", "enabled", "disabled"]]
+    other:
+      __map_audio_other_ids:
+        source:
+          type: string
+          description: "Ingress fragment for this other audio source (e.g. audiotestsrc, pulsesrc)."
+        transform:
+          type: string
+          default_value: ""
+          description: "Optional GStreamer transform fragment inserted after other audio ingress."
+        publish:
+          max_bitrate_bps:
+            type: int
+            default_value: -1
+            description: >-
+              Optional LiveKit max audio bitrate override for this other audio
+              source in bps. -1 inherits from
+              audio.publish.max_bitrate_bps.
+            validation:
+              gt_eq<>: [-1]
+          dtx:
+            type: string
+            default_value: ""
+            description: "Optional LiveKit DTX override for this other audio source. Empty inherits from audio.publish.dtx."
+            validation:
+              one_of<>: [["", "auto", "enabled", "disabled"]]
+          red:
+            type: string
+            default_value: ""
+            description: "Optional LiveKit RED override for this other audio source. Empty inherits from audio.publish.red."
             validation:
               one_of<>: [["", "auto", "enabled", "disabled"]]
 

@@ -565,4 +565,66 @@ TEST_F(RuntimeConfigTest, SlashVariantsLoadAsDistinctOtherSources)
   std::filesystem::remove(params_path);
 }
 
+TEST_F(RuntimeConfigTest, OtherAudioLoadsWithGlobalAndPerSourcePublishOptions)
+{
+  auto options = makeStaticTokenOptions();
+  options.append_parameter_override("audio.publish.max_bitrate_bps", 64000);
+  options.append_parameter_override("audio.publish.dtx", "enabled");
+  options.append_parameter_override("audio.publish.red", "disabled");
+  options.append_parameter_override("audio_other_ids", std::vector<std::string>{"cab_mic"});
+  options.append_parameter_override("audio.other.cab_mic.source", "audiotestsrc is-live=true wave=sine");
+  options.append_parameter_override("audio.other.cab_mic.publish.max_bitrate_bps", 96000);
+  options.append_parameter_override("audio.other.cab_mic.publish.dtx", "disabled");
+
+  const RuntimeConfig config = loadRuntimeConfigForNode("startup_config_other_audio_publish_override", options);
+
+  const auto & source = config.audio_stream.other_sources.at("cab_mic");
+  EXPECT_EQ(source.source_fragment, "audiotestsrc is-live=true wave=sine");
+  ASSERT_TRUE(source.publish_options.audio_encoding.has_value());
+  EXPECT_EQ(source.publish_options.audio_encoding->max_bitrate, 96000U);
+  EXPECT_EQ(source.publish_options.dtx, false);
+  EXPECT_EQ(source.publish_options.red, false);
+}
+
+TEST_F(RuntimeConfigTest, OtherAudioRejectsWhitespaceOnlySourceFragment)
+{
+  auto options = makeStaticTokenOptions();
+  options.append_parameter_override("audio_other_ids", std::vector<std::string>{"cab_mic"});
+  options.append_parameter_override("audio.other.cab_mic.source", " \t\n ");
+
+  expectConfigError(
+    "startup_config_empty_other_audio_source", options, "other audio source 'cab_mic' requires a non-empty source");
+}
+
+TEST_F(RuntimeConfigTest, BridgeManagedEndpointsAreRejectedInAudioFragments)
+{
+  auto options = makeStaticTokenOptions();
+  options.append_parameter_override("audio_other_ids", std::vector<std::string>{"cab_mic"});
+  options.append_parameter_override("audio.other.cab_mic.source", "appsrc ! audioconvert");
+
+  expectConfigError(
+    "startup_config_other_audio_appsrc_rejected",
+    options,
+    "other audio source 'cab_mic' must not define appsrc/appsink endpoints; the bridge owns them");
+}
+
+TEST_F(RuntimeConfigTest, InvalidAudioSourceSyntaxIsRejected)
+{
+  auto options = makeStaticTokenOptions();
+  options.append_parameter_override("audio_other_ids", std::vector<std::string>{"cab_mic"});
+  options.append_parameter_override("audio.other.cab_mic.source", "audiotestsrc ! )");
+
+  expectConfigErrorContains(
+    "startup_config_invalid_audio_source_syntax", options, "other audio source 'cab_mic' has invalid GStreamer syntax");
+}
+
+TEST_F(RuntimeConfigTest, DuplicateAudioIdsReportSectionSpecificErrors)
+{
+  auto options = makeStaticTokenOptions();
+  options.append_parameter_override("audio_other_ids", std::vector<std::string>{"cab_mic", "cab_mic"});
+  options.append_parameter_override("audio.other.cab_mic.source", "audiotestsrc is-live=true wave=sine");
+
+  expectConfigError("startup_config_duplicate_audio_other_id", options, "duplicate other audio id 'cab_mic'");
+}
+
 }  // namespace livekit_ros2_bridge
