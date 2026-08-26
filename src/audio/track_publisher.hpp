@@ -14,6 +14,7 @@
 
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -67,6 +68,9 @@ private:
   PipelineCallbacks makePipelineCallbacks(
     std::function<bool()> is_shutdown, std::function<void(const std::string & reason)> on_failed);
 
+  // Logs a transient LiveKit failure at most once per interval. Caller holds mutex_.
+  void logTransientFailure(const char * event_name, const std::string & error);
+
   void close();
 
   RoomConnection & connection_;
@@ -77,6 +81,11 @@ private:
   bool closed_ = false;
   bool published_once_ = false;
   bool captured_frame_logged_ = false;
+  // Next allowed (re)publish attempt after a LiveKit publish failure. Keeps a
+  // dead room from turning a healthy pipeline into a per-frame publish storm.
+  std::chrono::steady_clock::time_point next_publish_attempt_{};
+  // Throttle for transient-failure logging so a persistent hiccup cannot flood the log.
+  std::chrono::steady_clock::time_point next_failure_log_{};
   std::unique_ptr<GStreamerStream> gstreamer_stream_;
   std::shared_ptr<livekit::AudioSource> source_;
   std::shared_ptr<livekit::LocalAudioTrack> track_;

@@ -31,7 +31,14 @@ namespace
 {
 
 const auto kLogger = rclcpp::get_logger("audio_track_publisher");
+// Buffered AudioSource mode. A GStreamer source can deliver variable-size buffers
+// (not fixed 10 ms frames), and buffered mode smooths those for WebRTC. The LiveKit
+// header recommends queue_size_ms == 0 for hardware-paced capture; this is a
+// deliberate exception for a GStreamer producer. A capture tie-up is recovered by
+// dropping frames (see capture()), never by tearing down the pipeline.
 constexpr int kAudioSourceQueueSizeMs = 100;
+constexpr auto kPublishRetryInterval = std::chrono::milliseconds(250);
+constexpr auto kFailureLogInterval = std::chrono::seconds(1);
 
 void tryUnpublish(RoomConnection & connection, const std::shared_ptr<livekit::LocalAudioTrack> & track) noexcept
 {
@@ -86,17 +93,40 @@ void TrackPublisher::capture(const livekit::AudioFrame & frame)
 
   if (source_ == nullptr) {
     // The bridge tail forces mono 48 kHz, so the first sample's caps define the
-    // AudioSource for the life of the stream.
-    auto source =
-      std::make_shared<livekit::AudioSource>(frame.sampleRate(), frame.numChannels(), kAudioSourceQueueSizeMs);
-    auto track = connection_.publishAudioTrack(spec_.track_name, source, spec_.publish_options);
-    source_ = std::move(source);
-    track_ = std::move(track);
-    published_once_ = true;
-    captured_frame_logged_ = false;
+    // AudioSource for the life of the stream. A failed publish is a LiveKit-side
+    // hiccup, not a pipeline fault: keep the pipeline alive, drop this frame, and
+    // retry the publish after a short backoff. Escalating to a GStreamer error
+    // would tear the pipeline down and immediately fail again on its first frame,
+    // producing an endless stop/start cycle for a source that is perfectly fine.
+    const auto now = std::chrono::steady_clock::now();
+    if (now < next_publish_attempt_) {
+      return;
+    }
+
+    try {
+      auto source =
+        std::make_shared<livekit::AudioSource>(frame.sampleRate(), frame.numChannels(), kAudioSourceQueueSizeMs);
+      auto track = connection_.publishAudioTrack(spec_.track_name, source, spec_.publish_options);
+      source_ = std::move(source);
+      track_ = std::move(track);
+      published_once_ = true;
+      captured_frame_logged_ = false;
+    } catch (const std::exception & exc) {
+      next_publish_attempt_ = now + kPublishRetryInterval;
+      logTransientFailure("audio_stream_publish_failed_retry", exc.what());
+      return;
+    }
   }
 
-  source_->captureFrame(frame);
+  try {
+    source_->captureFrame(frame);
+  } catch (const std::exception & exc) {
+    // captureFrame can time out when the LiveKit sink is backpressured; drop this
+    // frame but keep the pipeline and track alive rather than failing the stream.
+    logTransientFailure("audio_stream_capture_failed_drop", exc.what());
+    return;
+  }
+
   if (!captured_frame_logged_) {
     LogEvent(kLogger, "audio_stream_frame_captured")
       .fieldOr("stream_key", spec_.stream_key)
@@ -106,6 +136,21 @@ void TrackPublisher::capture(const livekit::AudioFrame & frame)
       .info();
     captured_frame_logged_ = true;
   }
+}
+
+void TrackPublisher::logTransientFailure(const char * event_name, const std::string & error)
+{
+  const auto now = std::chrono::steady_clock::now();
+  if (now < next_failure_log_) {
+    return;
+  }
+  next_failure_log_ = now + kFailureLogInterval;
+
+  LogEvent(kLogger, event_name)
+    .fieldOr("stream_key", spec_.stream_key)
+    .fieldOr("track_name", spec_.track_name)
+    .fieldOr("error", error)
+    .warn();
 }
 
 void TrackPublisher::close()

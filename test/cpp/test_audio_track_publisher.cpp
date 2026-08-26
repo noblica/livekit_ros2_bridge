@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "audio/track_publisher.hpp"
@@ -105,7 +107,7 @@ TEST(AudioTrackPublisherTest, DestructionUsesBestEffortPublishedTrackCleanup)
     connection.state->unpublished_audio_track_names, (std::vector<std::string>{"lkros.audio.other.unpublish_failure"}));
 }
 
-TEST(AudioTrackPublisherTest, PublishFailureOnFirstFrameCanRetryAndStillDestroyCleanly)
+TEST(AudioTrackPublisherTest, PublishFailureIsNonFatalAndRetriesAfterBackoff)
 {
   FakeRoomConnection connection;
   int publish_attempts = 0;
@@ -118,10 +120,24 @@ TEST(AudioTrackPublisherTest, PublishFailureOnFirstFrameCanRetryAndStillDestroyC
   auto publisher = std::make_unique<TrackPublisher>(
     connection, makeSpec("other_audio:publish_retry", "lkros.audio.other.publish_retry"));
 
-  EXPECT_THROW(publisher->capture(makeFrame()), std::runtime_error);
+  // First frame: the LiveKit publish fails. This must NOT throw or tear the
+  // pipeline down; the frame is dropped and a retry is scheduled.
+  EXPECT_NO_THROW(publisher->capture(makeFrame()));
+  EXPECT_EQ(publish_attempts, 1);
+
+  // A frame within the backoff window is dropped without a new publish attempt.
   publisher->capture(makeFrame());
+  EXPECT_EQ(publish_attempts, 1);
+
+  // After the backoff elapses, the next frame retries the publish and succeeds.
+  std::this_thread::sleep_for(std::chrono::milliseconds(350));
+  publisher->capture(makeFrame());
+  EXPECT_EQ(publish_attempts, 2);
+
   publisher.reset();
 
+  // The fake records both publish calls (the failed first one and the retry);
+  // only the successful track is unpublished on destruction.
   EXPECT_EQ(
     connection.state->published_audio_track_names,
     (std::vector<std::string>{
