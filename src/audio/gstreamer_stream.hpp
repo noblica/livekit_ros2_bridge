@@ -14,6 +14,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <mutex>
 #include <string>
 
@@ -52,7 +53,7 @@ private:
   TrackPublisher & publisher_;
   GStreamerPipeline pipeline_;
   mutable std::mutex mutex_;
-  bool is_shutdown_ = false;
+  std::atomic<bool> is_shutdown_{false};
   utils::PipelineFailureHandler failure_handler_;
 };
 

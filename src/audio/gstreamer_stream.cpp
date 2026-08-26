@@ -38,10 +38,7 @@ GStreamerStream::GStreamerStream(StreamSpec spec, TrackPublisher & publisher)
 : spec_(std::move(spec))
 , publisher_(publisher)
 , pipeline_(publisher.makePipelineCallbacks(
-    [this]() {
-      std::lock_guard<std::mutex> lock(mutex_);
-      return is_shutdown_;
-    },
+    [this]() { return is_shutdown_.load(std::memory_order_acquire); },
     [this](const std::string & reason) { onPipelineFailure(reason); }))
 , failure_handler_(kRestartDelay, [this]() { restartPipelineAfterFailure(); })
 {}
@@ -54,7 +51,7 @@ GStreamerStream::~GStreamerStream()
 void GStreamerStream::start()
 {
   std::lock_guard<std::mutex> lock(mutex_);
-  if (is_shutdown_) {
+  if (is_shutdown_.load(std::memory_order_acquire)) {
     throw std::runtime_error("Audio stream is shut down.");
   }
 
@@ -65,11 +62,11 @@ void GStreamerStream::close()
 {
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (is_shutdown_) {
+    if (is_shutdown_.load(std::memory_order_acquire)) {
       return;
     }
 
-    is_shutdown_ = true;
+    is_shutdown_.store(true, std::memory_order_release);
   }
 
   failure_handler_.close();
@@ -79,7 +76,7 @@ void GStreamerStream::close()
 void GStreamerStream::onPipelineFailure(const std::string & reason)
 {
   std::lock_guard<std::mutex> lock(mutex_);
-  if (is_shutdown_ || !pipeline_.isActive()) {
+  if (is_shutdown_.load(std::memory_order_acquire) || !pipeline_.isActive()) {
     return;
   }
   if (!failure_handler_.schedule()) {
@@ -96,7 +93,7 @@ void GStreamerStream::onPipelineFailure(const std::string & reason)
 void GStreamerStream::restartPipelineAfterFailure()
 {
   std::lock_guard<std::mutex> lock(mutex_);
-  if (is_shutdown_) {
+  if (is_shutdown_.load(std::memory_order_acquire)) {
     return;
   }
 
