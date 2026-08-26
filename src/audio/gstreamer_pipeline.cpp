@@ -153,7 +153,7 @@ void GStreamerPipeline::start(const std::string & description)
   }
 
   GstAppSinkPtr appsink(GST_APP_SINK(sink_element.release()));
-  // stop() clears raw this callbacks before releasing the bin.
+  // stop() clears raw pipeline callbacks before releasing the bin.
   GstAppSinkCallbacks callbacks{};
   callbacks.new_sample = [](GstAppSink * sink, gpointer user_data) -> GstFlowReturn {
     return static_cast<GStreamerPipeline *>(user_data)->onSample(sink);

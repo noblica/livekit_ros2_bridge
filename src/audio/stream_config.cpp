@@ -14,6 +14,7 @@
 
 #include "audio/stream_config.hpp"
 
+#include <chrono>
 #include <cstdint>
 #include <stdexcept>
 #include <string>
@@ -120,6 +121,8 @@ StreamConfig loadConfig(const Params & params)
 {
   StreamConfig config = makeDefaultConfig();
   config.default_publish_options = parsePublishOptions(params);
+  config.degraded_after = std::chrono::duration_cast<std::chrono::milliseconds>(
+    std::chrono::duration<double>(params.health.subscriptions.degraded_after_seconds));
 
   std::unordered_set<std::string> seen_source_ids;
   std::unordered_set<std::string> seen_source_names;

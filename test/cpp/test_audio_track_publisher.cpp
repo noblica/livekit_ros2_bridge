@@ -107,6 +107,26 @@ TEST(AudioTrackPublisherTest, DestructionUsesBestEffortPublishedTrackCleanup)
     connection.state->unpublished_audio_track_names, (std::vector<std::string>{"lkros.audio.other.unpublish_failure"}));
 }
 
+TEST(AudioTrackPublisherTest, TeardownSurvivesForeignAndFailingTrackUnpublish)
+{
+  FakeRoomConnection connection;
+
+  // A foreign/untracked LocalAudioTrack handle (e.g. a stale SID after a
+  // reconnect swapped publications) is treated as unknown and must not throw.
+  auto foreign_track = connection.makeSyntheticAudioTrack();
+  EXPECT_NO_THROW(connection.unpublishAudioTrack(foreign_track));
+  EXPECT_EQ(connection.state->unpublished_audio_track_names, (std::vector<std::string>{kUnknownDataTrackName}));
+
+  // The best-effort teardown path also swallows a throwing unpublish rather
+  // than letting a stale-SID failure escape destruction.
+  connection.state->throw_on_unpublish_audio = true;
+  auto publisher =
+    std::make_unique<TrackPublisher>(connection, makeSpec("other_audio:stale_sid", "lkros.audio.other.stale_sid"));
+
+  publisher->capture(makeFrame());
+  EXPECT_NO_THROW(publisher.reset());
+}
+
 TEST(AudioTrackPublisherTest, PublishFailureIsNonFatalAndRetriesAfterBackoff)
 {
   FakeRoomConnection connection;
@@ -146,6 +166,59 @@ TEST(AudioTrackPublisherTest, PublishFailureIsNonFatalAndRetriesAfterBackoff)
     }));
   EXPECT_EQ(
     connection.state->unpublished_audio_track_names, (std::vector<std::string>{"lkros.audio.other.publish_retry"}));
+}
+
+TEST(AudioTrackPublisherTest, StallLifecycleReportsAndClearsDegradedReason)
+{
+  FakeRoomConnection connection;
+  const auto window = std::chrono::milliseconds(5);
+  auto publisher =
+    std::make_unique<TrackPublisher>(connection, makeSpec("other_audio:stall", "lkros.audio.other.stall"), window);
+
+  EXPECT_EQ(publisher->degradedReason(), "");
+
+  // A fully successful capture counts as delivery progress.
+  publisher->capture(makeFrame());
+  EXPECT_EQ(publisher->degradedReason(), "");
+
+  std::this_thread::sleep_for(window * 3);
+  EXPECT_EQ(publisher->degradedReason(), "delivery_stalled");
+
+  // One fresh successful capture clears the reason at the next status pull.
+  publisher->capture(makeFrame());
+  EXPECT_EQ(publisher->degradedReason(), "");
+}
+
+TEST(AudioTrackPublisherTest, ZeroWindowDisablesDegradedReporting)
+{
+  FakeRoomConnection connection;
+  auto publisher =
+    std::make_unique<TrackPublisher>(connection, makeSpec("other_audio:nostall", "lkros.audio.other.nostall"));
+
+  EXPECT_EQ(publisher->degradedReason(), "");
+  std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  EXPECT_EQ(publisher->degradedReason(), "");
+
+  publisher->capture(makeFrame());
+  std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  EXPECT_EQ(publisher->degradedReason(), "");
+}
+
+TEST(AudioTrackPublisherTest, PublishFailureForeverIsReportedAsStalled)
+{
+  FakeRoomConnection connection;
+  connection.state->publish_audio_track_hook = [](const std::string &) {
+    throw std::runtime_error("simulated persistent audio publish failure");
+  };
+  const auto window = std::chrono::milliseconds(5);
+  auto publisher = std::make_unique<TrackPublisher>(
+    connection, makeSpec("other_audio:deadroom", "lkros.audio.other.deadroom"), window);
+
+  // No frame ever flows through publish, so the stall clock keeps running from
+  // publisher construction even though captures arrive and are dropped.
+  EXPECT_NO_THROW(publisher->capture(makeFrame()));
+  std::this_thread::sleep_for(window * 3);
+  EXPECT_EQ(publisher->degradedReason(), "delivery_stalled");
 }
 
 }  // namespace

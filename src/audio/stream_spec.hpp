@@ -14,6 +14,7 @@
 
 #pragma once
 
+#include <chrono>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -35,6 +36,9 @@ struct StreamConfig
   // Keyed by the trimmed configured source name.
   std::unordered_map<std::string, OtherSource> other_sources;
   livekit::TrackPublishOptions default_publish_options;
+  // Window after which a publisher with no successful delivery reports
+  // "delivery_stalled" in lkros.status. Zero disables the signal.
+  std::chrono::milliseconds degraded_after{std::chrono::seconds(5)};
 };
 
 inline StreamConfig makeDefaultConfig()

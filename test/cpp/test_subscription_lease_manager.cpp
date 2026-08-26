@@ -1141,6 +1141,57 @@ TEST_F(SubscriptionLeaseManagerHeartbeatTest, MissingOtherAudioReturnsErrorOnSou
     "Unknown other audio source '/sources/missing'.");
 }
 
+TEST(SubscriptionLeaseManagerTest, HealthyAudioFlowLeavesDegradedReasonAbsent)
+{
+  ScopedRclcppInit init;
+  auto node = std::make_shared<rclcpp::Node>("subscription_registry_audio_healthy_status_test");
+  FakeRoomConnection session;
+  const audio::StreamConfig audio_config = makeOtherAudioSourceConfig();
+
+  auto registry = makeLeaseManager(*node, session, nullptr, &audio_config);
+
+  const auto first = sendHeartbeatAndExtractStatus(
+    registry, *session.state, "alice", makeHeartbeat({makeOtherAudioDemand("/sources/cab_mic")}));
+  ASSERT_TRUE(waitUntil([&session]() { return !session.state->published_audio_track_names.empty(); }));
+
+  // One fresh successful capture keeps the default window far away from a stall.
+  const auto second = sendHeartbeatAndExtractStatus(
+    registry, *session.state, "alice", makeHeartbeat({makeOtherAudioDemand("/sources/cab_mic")}));
+
+  expectStatusEntry(first, "other_audio", "/sources/cab_mic", "active");
+  expectStatusEntry(second, "other_audio", "/sources/cab_mic", "active");
+  EXPECT_FALSE(first.contains("degraded_reason"));
+  EXPECT_FALSE(second.contains("degraded_reason"));
+}
+
+TEST(SubscriptionLeaseManagerTest, StalledAudioPublisherReportsDegradedReasonWhileActive)
+{
+  ScopedRclcppInit init;
+  auto node = std::make_shared<rclcpp::Node>("subscription_registry_audio_stalled_status_test");
+  FakeRoomConnection session;
+  audio::StreamConfig audio_config = makeOtherAudioSourceConfig();
+  audio_config.degraded_after = std::chrono::milliseconds(5);
+  // Keep the room dead forever: no packet ever flows through publish, so the
+  // stall clock runs from publisher creation despite arriving frames.
+  session.state->publish_audio_track_hook = [](const std::string &) {
+    throw std::runtime_error("simulated persistent audio publish failure");
+  };
+
+  auto registry = makeLeaseManager(*node, session, nullptr, &audio_config);
+
+  const auto first = sendHeartbeatAndExtractStatus(
+    registry, *session.state, "alice", makeHeartbeat({makeOtherAudioDemand("/sources/cab_mic")}));
+  expectStatusEntry(first, "other_audio", "/sources/cab_mic", "active");
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+  const auto second = sendHeartbeatAndExtractStatus(
+    registry, *session.state, "alice", makeHeartbeat({makeOtherAudioDemand("/sources/cab_mic")}));
+  expectStatusEntry(second, "other_audio", "/sources/cab_mic", "active");
+  ASSERT_TRUE(second.contains("degraded_reason"));
+  EXPECT_EQ(second["degraded_reason"], "delivery_stalled");
+}
+
 TEST(SubscriptionLeaseManagerTest, EquivalentOtherAudioRequestsShareCanonicalSubscriptionAndTrack)
 {
   ScopedRclcppInit init;

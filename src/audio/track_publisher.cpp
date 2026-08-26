@@ -53,23 +53,38 @@ void tryUnpublish(RoomConnection & connection, const std::shared_ptr<livekit::Lo
 
 }  // namespace
 
-std::shared_ptr<TrackPublisher> TrackPublisher::create(RoomConnection & connection, StreamSpec spec)
+std::shared_ptr<TrackPublisher> TrackPublisher::create(
+  RoomConnection & connection, StreamSpec spec, std::chrono::milliseconds degraded_after)
 {
-  auto publisher = std::make_shared<TrackPublisher>(connection, std::move(spec));
+  auto publisher = std::make_shared<TrackPublisher>(connection, std::move(spec), degraded_after);
   auto stream = std::make_unique<GStreamerStream>(publisher->spec_, *publisher);
   stream->start();
   publisher->gstreamer_stream_ = std::move(stream);
   return publisher;
 }
 
-TrackPublisher::TrackPublisher(RoomConnection & connection, StreamSpec spec)
+TrackPublisher::TrackPublisher(RoomConnection & connection, StreamSpec spec, std::chrono::milliseconds degraded_after)
 : connection_(connection)
 , spec_(std::move(spec))
+, last_progress_at_{std::chrono::steady_clock::now()}
+, degraded_after_(degraded_after)
 {}
 
 TrackPublisher::~TrackPublisher()
 {
   close();
+}
+
+std::string TrackPublisher::degradedReason() const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (degraded_after_ <= std::chrono::milliseconds::zero()) {
+    return "";
+  }
+
+  constexpr char kStalledReason[] = "delivery_stalled";
+  const bool stalled = std::chrono::steady_clock::now() - last_progress_at_ > degraded_after_;
+  return stalled ? kStalledReason : "";
 }
 
 PipelineCallbacks TrackPublisher::makePipelineCallbacks(
@@ -98,6 +113,12 @@ void TrackPublisher::capture(const livekit::AudioFrame & frame)
     // retry the publish after a short backoff. Escalating to a GStreamer error
     // would tear the pipeline down and immediately fail again on its first frame,
     // producing an endless stop/start cycle for a source that is perfectly fine.
+    //
+    // No bridge-side republish machinery exists on purpose: livekit-client-sdk-cpp
+    // v1.6.0 (Rust core handle_restarted, submodule commit 06371a3) auto-republishes
+    // every local track after a full reconnect, reusing bound sources. Residual
+    // risk is an SDK republish failure, surfaced by degradedReason() as
+    // "delivery_stalled" rather than handled here.
     const auto now = std::chrono::steady_clock::now();
     if (now < next_publish_attempt_) {
       return;
@@ -111,6 +132,7 @@ void TrackPublisher::capture(const livekit::AudioFrame & frame)
       track_ = std::move(track);
       published_once_ = true;
       captured_frame_logged_ = false;
+      last_progress_at_ = now;
     } catch (const std::exception & exc) {
       next_publish_attempt_ = now + kPublishRetryInterval;
       logTransientFailure("audio_stream_publish_failed_retry", exc.what());
@@ -126,6 +148,8 @@ void TrackPublisher::capture(const livekit::AudioFrame & frame)
     logTransientFailure("audio_stream_capture_failed_drop", exc.what());
     return;
   }
+
+  last_progress_at_ = std::chrono::steady_clock::now();
 
   if (!captured_frame_logged_) {
     LogEvent(kLogger, "audio_stream_frame_captured")

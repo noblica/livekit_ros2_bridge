@@ -321,7 +321,7 @@ Active entries (`status: "active"`):
 - MUST NOT include `interface_type` when `kind` is `other_video` or `other_audio`.
 - MUST set `delivery.kind` to `data`, `video`, or `audio`.
 - MUST include `delivery.track_name`.
-- MAY include `degraded_reason` on video entries when the stream is degraded but still deliverable.
+- MAY include `degraded_reason` when delivery is degraded but still active: video entries when the stream is degraded but still deliverable; audio entries report `delivery_stalled` as described in [Audio-Track Delivery](#audio-track-delivery).
 - MAY include `qos` on data-delivered topics: an object with `durability` (`"volatile"` | `"transient_local"`). A `transient_local` topic supports [`ros2.topic.echo.once`](#rpc-ros2topicechoonce).
 
 #### Error Entries
@@ -432,6 +432,8 @@ Audio deliveries use deterministic track names.
 - Audio `track_name` values MUST be deterministic and stable for the target name.
 - `other_audio` track names MUST percent-encode any byte outside the RFC 3986 unreserved set.
 - Each configured other-audio source publishes as exactly one mono audio track; stereo is client-side routing of two mono tracks.
+- Active entries MAY include `degraded_reason: "delivery_stalled"` when no audio packets were successfully delivered for longer than `health.subscriptions.degraded_after_seconds`. The bridge owns the source; `delivery_stalled` clears automatically once packets resume, without a re-subscribe.
+- `delivery_stalled` measures packet flow, not sound content: a paused GStreamer source or an OS-muted microphone stops packet delivery and is reported as stalled even though the bridge itself is healthy.
 
 ## Byte Stream: `lkros.echo.once`
 

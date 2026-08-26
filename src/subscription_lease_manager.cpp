@@ -493,7 +493,8 @@ SubscriptionStatus SubscriptionLeaseManager::create(
   try {
     Runtime runtime = [&]() -> Runtime {
       if (demand.audio_spec.has_value()) {
-        return Runtime{audio::TrackPublisher::create(room_connection_, *demand.audio_spec)};
+        return Runtime{
+          audio::TrackPublisher::create(room_connection_, *demand.audio_spec, audioStreamConfig().degraded_after)};
       }
       if (demand.video_spec.has_value()) {
         return Runtime{
@@ -589,6 +590,7 @@ SubscriptionStatus SubscriptionLeaseManager::status(const Subscription & subscri
       const auto & audio_spec = publisher->spec();
       status.delivery = SubscriptionDeliveryKind::Audio;
       status.track_name = audio_spec.track_name;
+      status.degradation_reason = publisher->degradedReason();
     }
   };
 
