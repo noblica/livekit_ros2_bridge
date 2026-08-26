@@ -24,6 +24,7 @@
 #include "audio/pipeline_description.hpp"
 #include "livekit/room_event_types.h"
 #include "utils/gstreamer_pipeline_validation.hpp"
+#include "utils/param_entries.hpp"
 #include "utils/trim.hpp"
 
 namespace livekit_ros2_bridge::audio
@@ -95,25 +96,7 @@ livekit::TrackPublishOptions parsePublishOptions(const EntryT & entry, const liv
   return options;
 }
 
-template <typename EntryMap>
-const typename EntryMap::mapped_type & requireUniqueEntry(
-  std::unordered_set<std::string> & seen,
-  const std::string & id,
-  const EntryMap & entries,
-  const char * duplicate_label,
-  const char * missing_label)
-{
-  if (!seen.emplace(id).second) {
-    throw std::runtime_error(std::string("duplicate ") + duplicate_label + " '" + id + "'");
-  }
-
-  const auto it = entries.find(id);
-  if (it == entries.end()) {
-    throw std::runtime_error(std::string(missing_label) + " '" + id + "' is missing generated parameters");
-  }
-
-  return it->second;
-}
+using utils::requireUniqueEntry;
 
 }  // namespace
 
@@ -126,7 +109,7 @@ StreamConfig loadConfig(const Params & params)
 
   std::unordered_set<std::string> seen_source_ids;
   std::unordered_set<std::string> seen_source_names;
-  constexpr utils::EndpointLayout kOtherSourceLayout{0U, 1U, 0U, 1U, nullptr, kBridgeAppSinkName};
+  constexpr utils::EndpointLayout kOtherSourceLayout = utils::makeOtherSourceLayout(kBridgeAppSinkName);
 
   for (const auto & id : params.audio_other_ids) {
     const auto & entry = requireUniqueEntry(

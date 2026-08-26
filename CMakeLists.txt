@@ -70,6 +70,19 @@ target_link_libraries(livekit_ros2_bridge_ros_interfaces PRIVATE
   ament_index_cpp::ament_index_cpp
 )
 
+add_library(livekit_ros2_bridge_utils STATIC
+  src/utils/percent_encode.cpp
+  src/utils/pipeline_failure_handler.cpp
+  src/utils/gstreamer_pipeline_validation.cpp
+)
+set_target_properties(livekit_ros2_bridge_utils PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_include_directories(livekit_ros2_bridge_utils PUBLIC
+  "${livekit_ros2_bridge_private_include_dir}"
+)
+target_link_libraries(livekit_ros2_bridge_utils PRIVATE
+  PkgConfig::gstreamer
+)
+
 add_library(livekit_ros2_bridge_video STATIC
   src/video/gstreamer_pipeline.cpp
   src/video/gstreamer_stream.cpp
@@ -77,9 +90,6 @@ add_library(livekit_ros2_bridge_video STATIC
   src/video/stream_config.cpp
   src/video/stream_spec.cpp
   src/video/track_publisher.cpp
-  src/utils/percent_encode.cpp
-  src/utils/pipeline_failure_handler.cpp
-  src/utils/gstreamer_pipeline_validation.cpp
 )
 set_target_properties(livekit_ros2_bridge_video PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(livekit_ros2_bridge_video PUBLIC
@@ -90,6 +100,7 @@ target_link_libraries(livekit_ros2_bridge_video PUBLIC
   rclcpp::rclcpp
   LiveKit::livekit
   livekit_ros2_bridge_parameters
+  livekit_ros2_bridge_utils
   ${sensor_msgs_TARGETS}
 )
 target_link_libraries(livekit_ros2_bridge_video PRIVATE
@@ -114,6 +125,7 @@ target_link_libraries(livekit_ros2_bridge_audio PUBLIC
   rclcpp::rclcpp
   LiveKit::livekit
   livekit_ros2_bridge_parameters
+  livekit_ros2_bridge_utils
 )
 target_link_libraries(livekit_ros2_bridge_audio PRIVATE
   PkgConfig::gstreamer
