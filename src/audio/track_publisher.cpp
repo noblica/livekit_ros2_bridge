@@ -37,7 +37,6 @@ const auto kLogger = rclcpp::get_logger("audio_track_publisher");
 // deliberate exception for a GStreamer producer. A capture tie-up is recovered by
 // dropping frames (see capture()), never by tearing down the pipeline.
 constexpr int kAudioSourceQueueSizeMs = 100;
-constexpr auto kPublishRetryInterval = std::chrono::milliseconds(250);
 constexpr auto kFailureLogInterval = std::chrono::seconds(1);
 
 void tryUnpublish(RoomConnection & connection, const std::shared_ptr<livekit::LocalAudioTrack> & track) noexcept
@@ -54,20 +53,29 @@ void tryUnpublish(RoomConnection & connection, const std::shared_ptr<livekit::Lo
 }  // namespace
 
 std::shared_ptr<TrackPublisher> TrackPublisher::create(
-  RoomConnection & connection, StreamSpec spec, std::chrono::milliseconds degraded_after)
+  RoomConnection & connection,
+  StreamSpec spec,
+  std::chrono::milliseconds degraded_after,
+  std::chrono::milliseconds publish_retry_interval)
 {
-  auto publisher = std::make_shared<TrackPublisher>(connection, std::move(spec), degraded_after);
+  auto publisher =
+    std::make_shared<TrackPublisher>(connection, std::move(spec), degraded_after, publish_retry_interval);
   auto stream = std::make_unique<GStreamerStream>(publisher->spec_, *publisher);
   stream->start();
   publisher->gstreamer_stream_ = std::move(stream);
   return publisher;
 }
 
-TrackPublisher::TrackPublisher(RoomConnection & connection, StreamSpec spec, std::chrono::milliseconds degraded_after)
+TrackPublisher::TrackPublisher(
+  RoomConnection & connection,
+  StreamSpec spec,
+  std::chrono::milliseconds degraded_after,
+  std::chrono::milliseconds publish_retry_interval)
 : connection_(connection)
 , spec_(std::move(spec))
 , last_progress_at_{std::chrono::steady_clock::now()}
 , degraded_after_(degraded_after)
+, publish_retry_interval_(publish_retry_interval)
 {}
 
 TrackPublisher::~TrackPublisher()
@@ -130,11 +138,10 @@ void TrackPublisher::capture(const livekit::AudioFrame & frame)
       auto track = connection_.publishAudioTrack(spec_.track_name, source, spec_.publish_options);
       source_ = std::move(source);
       track_ = std::move(track);
-      published_once_ = true;
       captured_frame_logged_ = false;
       last_progress_at_ = now;
     } catch (const std::exception & exc) {
-      next_publish_attempt_ = now + kPublishRetryInterval;
+      next_publish_attempt_ = now + publish_retry_interval_;
       logTransientFailure("audio_stream_publish_failed_retry", exc.what());
       return;
     }
@@ -189,7 +196,6 @@ void TrackPublisher::close()
       return;
     }
 
-    published_once_ = false;
     captured_frame_logged_ = false;
     closed_ = true;
     gstreamer_stream = std::move(gstreamer_stream_);

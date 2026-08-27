@@ -107,7 +107,7 @@ void GStreamerStream::restartPipelineAfterFailure()
 
 void GStreamerStream::startPipelineLocked()
 {
-  const auto & input = requireOtherInput(spec_);
+  const auto & input = spec_.input;
   pipeline_.start(buildPipelineDescription(input.source_fragment, input.transform_fragment));
 }
 

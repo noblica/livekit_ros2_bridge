@@ -52,7 +52,7 @@ TEST(AudioStreamSpecTest, ResolveOtherSourceSpecTrimsOtherSourceName)
   config.other_sources.emplace("cab_mic", std::move(source));
 
   const auto spec = resolveOtherSourceSpec(config, "  cab_mic  ");
-  const auto & input = requireOtherInput(spec);
+  const auto & input = spec.input;
 
   EXPECT_EQ(spec.stream_key, "other_audio:cab_mic");
   EXPECT_EQ(spec.track_name, "lkros.audio.other.cab_mic");

@@ -64,8 +64,6 @@ struct StreamSpec
   livekit::TrackPublishOptions publish_options;
 };
 
-const OtherInput & requireOtherInput(const StreamSpec & spec);
-
 StreamSpec resolveOtherSourceSpec(const StreamConfig & config, const std::string & source_name);
 
 }  // namespace livekit_ros2_bridge::audio

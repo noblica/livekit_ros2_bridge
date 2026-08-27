@@ -266,7 +266,9 @@ video::StreamSpec SubscriptionLeaseManager::resolveVideoSpec(
       throw std::invalid_argument("other audio is not a video stream request");
   }
 
-  throw std::invalid_argument("video stream request kind is invalid");
+  // All SubscriptionTargetKind enumerators are handled above; the switch cannot
+  // fall through here, but GCC still requires a return path after the switch.
+  throw std::logic_error("unreachable video stream request kind");
 }
 
 audio::StreamSpec SubscriptionLeaseManager::resolveAudioSpec(
@@ -280,7 +282,9 @@ audio::StreamSpec SubscriptionLeaseManager::resolveAudioSpec(
       throw std::invalid_argument("only other audio requests resolve to audio streams");
   }
 
-  throw std::invalid_argument("audio stream request kind is invalid");
+  // All SubscriptionTargetKind enumerators are handled above; the switch cannot
+  // fall through here, but GCC still requires a return path after the switch.
+  throw std::logic_error("unreachable audio stream request kind");
 }
 
 SubscriptionLeaseManager::ResolvedDemand SubscriptionLeaseManager::resolveDemand(

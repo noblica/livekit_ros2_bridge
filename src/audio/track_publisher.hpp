@@ -36,13 +36,21 @@ class TrackPublisher final
 {
 public:
   static constexpr std::chrono::milliseconds kDefaultDegradedAfter{std::chrono::seconds(5)};
+  // Backoff before a capture retries the publish after a LiveKit publish failure.
+  static constexpr std::chrono::milliseconds kDefaultPublishRetryInterval{250};
 
   static std::shared_ptr<TrackPublisher> create(
-    RoomConnection & connection, StreamSpec spec, std::chrono::milliseconds degraded_after = kDefaultDegradedAfter);
+    RoomConnection & connection,
+    StreamSpec spec,
+    std::chrono::milliseconds degraded_after = kDefaultDegradedAfter,
+    std::chrono::milliseconds publish_retry_interval = kDefaultPublishRetryInterval);
 
   // Does not start a GStreamer input stream.
   TrackPublisher(
-    RoomConnection & connection, StreamSpec spec, std::chrono::milliseconds degraded_after = kDefaultDegradedAfter);
+    RoomConnection & connection,
+    StreamSpec spec,
+    std::chrono::milliseconds degraded_after = kDefaultDegradedAfter,
+    std::chrono::milliseconds publish_retry_interval = kDefaultPublishRetryInterval);
 
   ~TrackPublisher();
 
@@ -88,15 +96,15 @@ private:
   // Guards stream handles, publication state, and late callbacks racing with close().
   mutable std::mutex mutex_;
   bool closed_ = false;
-  bool published_once_ = false;
   bool captured_frame_logged_ = false;
   // Last moment a capture() ended in full success (publish plus source frame
   // acceptance). Age beyond degraded_after_ is surfaced as "delivery_stalled".
   std::chrono::steady_clock::time_point last_progress_at_{};
   // Stall window before lkros.status reports the delivery as degraded.
   std::chrono::milliseconds degraded_after_;
-  // Next allowed (re)publish attempt after a LiveKit publish failure. Keeps a
+  // Backoff before the next (re)publish attempt after a LiveKit publish failure. Keeps a
   // dead room from turning a healthy pipeline into a per-frame publish storm.
+  std::chrono::milliseconds publish_retry_interval_;
   std::chrono::steady_clock::time_point next_publish_attempt_{};
   // Throttle for transient-failure logging so a persistent hiccup cannot flood the log.
   std::chrono::steady_clock::time_point next_failure_log_{};

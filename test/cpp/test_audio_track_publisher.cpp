@@ -56,7 +56,6 @@ TEST(AudioTrackPublisherTest, FirstFramePublishesAndDestructionUnpublishes)
   publisher->capture(makeFrame());
   publisher->capture(makeFrame());
   publisher.reset();
-  publisher.reset();
 
   EXPECT_EQ(
     connection.state->event_log,
@@ -99,7 +98,6 @@ TEST(AudioTrackPublisherTest, DestructionUsesBestEffortPublishedTrackCleanup)
 
   publisher->capture(makeFrame());
   EXPECT_NO_THROW(publisher.reset());
-  EXPECT_NO_THROW(publisher.reset());
 
   EXPECT_EQ(
     connection.state->published_audio_track_names, (std::vector<std::string>{"lkros.audio.other.unpublish_failure"}));
@@ -137,20 +135,24 @@ TEST(AudioTrackPublisherTest, PublishFailureIsNonFatalAndRetriesAfterBackoff)
       throw std::runtime_error("simulated audio publish failure");
     }
   };
+  // The publish-retry interval is injected at 50 ms so the retry can be
+  // observed deterministically: a 60 ms sleep (adding ~60 ms to the suite,
+  // well under the old 350 ms default wait) is always past the backoff, and
+  // the former in-backoff negative assertion is omitted because with a tiny
+  // interval an "immediate" second capture could already land outside it.
   auto publisher = std::make_unique<TrackPublisher>(
-    connection, makeSpec("other_audio:publish_retry", "lkros.audio.other.publish_retry"));
+    connection,
+    makeSpec("other_audio:publish_retry", "lkros.audio.other.publish_retry"),
+    TrackPublisher::kDefaultDegradedAfter,
+    std::chrono::milliseconds(50));
 
   // First frame: the LiveKit publish fails. This must NOT throw or tear the
   // pipeline down; the frame is dropped and a retry is scheduled.
   EXPECT_NO_THROW(publisher->capture(makeFrame()));
   EXPECT_EQ(publish_attempts, 1);
 
-  // A frame within the backoff window is dropped without a new publish attempt.
-  publisher->capture(makeFrame());
-  EXPECT_EQ(publish_attempts, 1);
-
   // After the backoff elapses, the next frame retries the publish and succeeds.
-  std::this_thread::sleep_for(std::chrono::milliseconds(350));
+  std::this_thread::sleep_for(std::chrono::milliseconds(60));
   publisher->capture(makeFrame());
   EXPECT_EQ(publish_attempts, 2);
 

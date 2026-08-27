@@ -33,11 +33,6 @@ const auto kLogger = rclcpp::get_logger("audio_stream_spec");
 
 }  // namespace
 
-const OtherInput & requireOtherInput(const StreamSpec & spec)
-{
-  return spec.input;
-}
-
 StreamSpec resolveOtherSourceSpec(const StreamConfig & config, const std::string & source_name)
 {
   const std::string name = trim(source_name);
