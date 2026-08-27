@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef LIVEKIT_ROS2_BRIDGE__PARAM_ENTRIES_HPP_
-#define LIVEKIT_ROS2_BRIDGE__PARAM_ENTRIES_HPP_
+#pragma once
 
 #include <string>
 #include <unordered_set>
@@ -45,5 +44,3 @@ const typename EntryMap::mapped_type & requireUniqueEntry(
 }
 
 }  // namespace livekit_ros2_bridge::utils
-
-#endif  // LIVEKIT_ROS2_BRIDGE__PARAM_ENTRIES_HPP_

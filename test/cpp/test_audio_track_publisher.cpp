@@ -173,7 +173,9 @@ TEST(AudioTrackPublisherTest, PublishFailureIsNonFatalAndRetriesAfterBackoff)
 TEST(AudioTrackPublisherTest, StallLifecycleReportsAndClearsDegradedReason)
 {
   FakeRoomConnection connection;
-  const auto window = std::chrono::milliseconds(5);
+  // 50 ms window keeps the pre-stall checks comfortably clear of CI scheduling
+  // jitter while the 3x sleeps still bound total added latency to ~150 ms.
+  const auto window = std::chrono::milliseconds(50);
   auto publisher =
     std::make_unique<TrackPublisher>(connection, makeSpec("other_audio:stall", "lkros.audio.other.stall"), window);
 
@@ -194,15 +196,17 @@ TEST(AudioTrackPublisherTest, StallLifecycleReportsAndClearsDegradedReason)
 TEST(AudioTrackPublisherTest, ZeroWindowDisablesDegradedReporting)
 {
   FakeRoomConnection connection;
-  auto publisher =
-    std::make_unique<TrackPublisher>(connection, makeSpec("other_audio:nostall", "lkros.audio.other.nostall"));
+  // Explicitly disable reporting: the disable branch must hold even when much
+  // more than any nonzero window has elapsed since the last progress.
+  auto publisher = std::make_unique<TrackPublisher>(
+    connection, makeSpec("other_audio:nostall", "lkros.audio.other.nostall"), std::chrono::milliseconds::zero());
 
   EXPECT_EQ(publisher->degradedReason(), "");
-  std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  std::this_thread::sleep_for(std::chrono::milliseconds(30));
   EXPECT_EQ(publisher->degradedReason(), "");
 
   publisher->capture(makeFrame());
-  std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  std::this_thread::sleep_for(std::chrono::milliseconds(30));
   EXPECT_EQ(publisher->degradedReason(), "");
 }
 
