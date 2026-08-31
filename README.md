@@ -87,7 +87,7 @@ For standard package build and test commands, see [DEVELOPING.md](./DEVELOPING.m
      --params-file $(pwd)/livekit_bridge.params.yaml
    ```
 
-   Wait for `event=runtime_ready`.
+   Wait for `event=room_connected` in the node's log output.
 
 4. Connect a LiveKit client to the same room and use the resources you allowed.
 
