@@ -82,10 +82,6 @@ livekit_ros2_bridge:
     # audio.publish.dtx: "auto"  # or "enabled", "disabled"
     # audio.publish.red: "auto"  # or "enabled", "disabled"
     #
-    # Seconds without delivered audio packets before lkros.status reports
-    # "delivery_stalled" on an other-audio entry. 0 disables reporting.
-    # health.subscriptions.degraded_after_seconds: 5.0
-    #
     # audio_other_ids: ["cab_mic"]
     #
     # audio.other.cab_mic.source: "pulsesrc device=alsa_input.pci-0000_00_1f.3.analog-stereo"

@@ -35,21 +35,18 @@ struct PipelineCallbacks;
 class TrackPublisher final
 {
 public:
-  static constexpr std::chrono::milliseconds kDefaultDegradedAfter{std::chrono::seconds(5)};
   // Backoff before a capture retries the publish after a LiveKit publish failure.
   static constexpr std::chrono::milliseconds kDefaultPublishRetryInterval{250};
 
   static std::shared_ptr<TrackPublisher> create(
     RoomConnection & connection,
     StreamSpec spec,
-    std::chrono::milliseconds degraded_after = kDefaultDegradedAfter,
     std::chrono::milliseconds publish_retry_interval = kDefaultPublishRetryInterval);
 
   // Does not start a GStreamer input stream.
   TrackPublisher(
     RoomConnection & connection,
     StreamSpec spec,
-    std::chrono::milliseconds degraded_after = kDefaultDegradedAfter,
     std::chrono::milliseconds publish_retry_interval = kDefaultPublishRetryInterval);
 
   ~TrackPublisher();
@@ -63,11 +60,6 @@ public:
   {
     return spec_;
   }
-
-  // "delivery_stalled" once no frame has flowed fully through publish and
-  // capture for longer than the configured window; empty while healthy or when
-  // the window is zero (reporting disabled).
-  std::string degradedReason() const;
 
   // First frame publishes; the AudioSource is created lazily from the first
   // sample's caps. The bridge tail forces mono 48 kHz, so no republish path
@@ -97,11 +89,6 @@ private:
   mutable std::mutex mutex_;
   bool closed_ = false;
   bool captured_frame_logged_ = false;
-  // Last moment a capture() ended in full success (publish plus source frame
-  // acceptance). Age beyond degraded_after_ is surfaced as "delivery_stalled".
-  std::chrono::steady_clock::time_point last_progress_at_{};
-  // Stall window before lkros.status reports the delivery as degraded.
-  std::chrono::milliseconds degraded_after_;
   // Backoff before the next (re)publish attempt after a LiveKit publish failure. Keeps a
   // dead room from turning a healthy pipeline into a per-frame publish storm.
   std::chrono::milliseconds publish_retry_interval_;

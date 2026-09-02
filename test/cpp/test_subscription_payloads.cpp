@@ -404,33 +404,6 @@ TEST(SubscriptionPayloadsTest, SerializeSubscriptionStatusesSerializesAudioDeliv
     expected);
 }
 
-TEST(SubscriptionPayloadsTest, SerializeSubscriptionStatusesSerializesAudioDeliveryWithDegradedReason)
-{
-  auto other_audio = makeStatus(
-    SubscriptionTargetKind::OtherAudio,
-    "/sources/cab_mic",
-    SubscriptionDeliveryKind::Audio,
-    "lkros.audio.other.%2Fsources%2Fcab_mic");
-  other_audio.degradation_reason = "delivery_stalled";
-
-  nlohmann::json expected = {
-    {"v", protocol::kProtocolVersion},
-    {"type", protocol::kStatusTopic},
-    {"subscriptions", nlohmann::json::array()},
-  };
-  expected["subscriptions"].push_back({
-    {"kind", "other_audio"},
-    {"name", "/sources/cab_mic"},
-    {"status", "active"},
-    {"degraded_reason", "delivery_stalled"},
-    {"delivery", {{"kind", "audio"}, {"track_name", "lkros.audio.other.%2Fsources%2Fcab_mic"}}},
-  });
-
-  EXPECT_EQ(
-    statusBody(std::vector<SubscriptionStatusEntry>{SubscriptionStatusEntry{other_audio}}, std::nullopt, std::nullopt),
-    expected);
-}
-
 TEST(SubscriptionPayloadsTest, SerializeSubscriptionStatusesSerializesErrorOnlyBody)
 {
   nlohmann::json expected = {

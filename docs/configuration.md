@@ -46,7 +46,6 @@ Notes:
 | --- | --- | --- | --- |
 | `health.watchdog.enabled` | `true` | `true`, `false` | Enables shutdown after the recovery timeout expires |
 | `health.watchdog.recovery_timeout_seconds` | `75.0` | double `>= 0.0` | Maximum time the bridge may spend recovering connectivity before it exits |
-| `health.subscriptions.degraded_after_seconds` | `5.0` | double `>= 0.0` | Window after which a subscription that has delivered no audio reports degraded in `lkros.status`. Measures packet flow, not sound content: an OS-muted microphone is reported even though the bridge is healthy. `0` disables reporting. |
 
 Notes:
 

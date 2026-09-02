@@ -31,17 +31,6 @@ livekit_ros2_bridge:
           SDK owns reconnect.
         validation:
           gt_eq<>: [0.0]
-    subscriptions:
-      degraded_after_seconds:
-        type: double
-        default_value: 5.0
-        description: >-
-          Window after which a subscription that has delivered no audio reports
-          degraded in lkros.status. Measures packet flow, not sound content: an
-          OS-muted microphone is reported even though the bridge is healthy.
-          0 disables reporting.
-        validation:
-          gt_eq<>: [0.0]
 
   access:
     rules:
