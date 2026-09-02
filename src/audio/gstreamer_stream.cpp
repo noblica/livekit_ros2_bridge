@@ -73,10 +73,14 @@ void GStreamerStream::close()
   pipeline_.stop();
 }
 
+// This path must stay lock-free: the sync bus handler can deliver a failure
+// from inside start() or restartPipelineAfterFailure(), which hold mutex_ while
+// GStreamer performs the state change. Locking here would deadlock against the
+// calling thread itself. schedule() coalesces duplicate failures, and close()
+// marks the handler closed before teardown, so no stream mutex_ is needed.
 void GStreamerStream::onPipelineFailure(const std::string & reason)
 {
-  std::lock_guard<std::mutex> lock(mutex_);
-  if (is_shutdown_.load(std::memory_order_acquire) || !pipeline_.isActive()) {
+  if (is_shutdown_.load(std::memory_order_acquire)) {
     return;
   }
   if (!failure_handler_.schedule()) {
