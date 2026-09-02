@@ -34,3 +34,4 @@ livekit_bridge.*.params.yaml
 
 # Agent working notes (PRDs, scratch analyses; never committed)
 ai_working/
+CONTEXT.md
