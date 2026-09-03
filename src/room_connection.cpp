@@ -30,6 +30,7 @@
 #include "livekit/data_stream.h"
 #include "livekit/data_track_error.h"
 #include "livekit/livekit.h"
+#include "livekit/local_audio_track.h"
 #include "livekit/local_data_track.h"
 #include "livekit/local_participant.h"
 #include "livekit/local_video_track.h"
@@ -284,6 +285,76 @@ public:
     }
   }
 
+  std::shared_ptr<livekit::LocalAudioTrack> publishAudioTrack(
+    const std::string & name,
+    const std::shared_ptr<livekit::AudioSource> & source,
+    const livekit::TrackPublishOptions & options) override
+  {
+    if (name.empty()) {
+      throw std::invalid_argument("Audio track name is required.");
+    }
+    if (source == nullptr) {
+      throw std::invalid_argument("Audio source is required.");
+    }
+
+    const auto ref = participantRef();
+    if (ref.participant == nullptr) {
+      throw std::runtime_error(kLocalParticipantUnavailable);
+    }
+
+    try {
+      auto track = livekit::LocalAudioTrack::createLocalAudioTrack(name, source);
+      if (track == nullptr) {
+        throw std::runtime_error("Failed to publish audio track '" + name + "'.");
+      }
+
+      livekit::TrackPublishOptions publish_options = options;
+      publish_options.source = livekit::TrackSource::SOURCE_MICROPHONE;
+      ref.participant->publishTrack(track, publish_options);
+
+      const auto publication = track->publication();
+      if (publication == nullptr) {
+        throw std::runtime_error("Failed to publish audio track '" + name + "'.");
+      }
+
+      LogEvent(kLogger, "audio_track_published")
+        .fieldOr("track_sid", publication->sid())
+        .fieldOr("track_name", publication->name())
+        .info();
+
+      recordAudioTrackIfCurrent(name, track, ref.room_generation);
+      return track;
+    } catch (...) {
+      LogEvent(kLogger, "audio_track_publish_failed")
+        .fieldOr("track_name", name)
+        .field("track_sample_rate", source->sampleRate())
+        .field("track_channels", source->numChannels())
+        .fieldException("error", std::current_exception())
+        .warn();
+      throw;
+    }
+  }
+
+  void unpublishAudioTrack(const std::shared_ptr<livekit::LocalAudioTrack> & track) override
+  {
+    if (track == nullptr) {
+      return;
+    }
+
+    const std::string & name = track->name();
+    try {
+      unpublishAudioTrackIfCurrent(track);
+    } catch (...) {
+      try {
+        LogEvent(kLogger, "audio_track_unpublish_failed")
+          .field("track_name", name)
+          .fieldOr("track_sid", track->sid())
+          .fieldException("error", std::current_exception())
+          .warn();
+      } catch (...) {}
+    }
+  }
+
   void sendByteStream(
     const std::string & topic,
     const std::string & name,
@@ -420,6 +491,55 @@ private:
       return;
     }
     track_room_generations_[track.get()] = room_generation;
+  }
+
+  void unpublishAudioTrackIfCurrent(const std::shared_ptr<livekit::LocalAudioTrack> & track)
+  {
+    std::uint64_t room_generation = 0;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      const auto it = audio_track_room_generations_.find(track.get());
+      if (it == audio_track_room_generations_.end()) {
+        return;
+      }
+
+      room_generation = it->second;
+      audio_track_room_generations_.erase(it);
+    }
+
+    const auto publication = track->publication();
+    if (publication == nullptr) {
+      return;
+    }
+
+    auto ref = participantRef();
+    if (ref.participant == nullptr) {
+      return;
+    }
+    if (ref.room_generation != room_generation) {
+      return;
+    }
+
+    ref.participant->unpublishTrack(publication->sid());
+    LogEvent(kLogger, "audio_track_unpublished")
+      .fieldOr("track_name", publication->name())
+      .fieldOr("track_sid", publication->sid())
+      .info();
+  }
+
+  void recordAudioTrackIfCurrent(
+    const std::string & name, const std::shared_ptr<livekit::LocalAudioTrack> & track, std::uint64_t room_generation)
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (room_generation != room_generation_) {
+      // The room changed while publishTrack() was in flight; leave this stale track untracked.
+      LogEvent(kLogger, "audio_track_publish_stale")
+        .field("track_name", name)
+        .fieldOr("track_sid", track->sid())
+        .warn();
+      return;
+    }
+    audio_track_room_generations_[track.get()] = room_generation;
   }
 
   void run()
@@ -710,6 +830,8 @@ private:
   std::unordered_map<std::string, livekit::LocalParticipant::RpcHandler> rpc_handlers_;
   // Guards video unpublish against tracks published by an older room.
   std::unordered_map<const livekit::LocalVideoTrack *, std::uint64_t> track_room_generations_;
+  // Guards audio unpublish against tracks published by an older room.
+  std::unordered_map<const livekit::LocalAudioTrack *, std::uint64_t> audio_track_room_generations_;
 
   bool stop_requested_ = false;
   bool sdk_initialized_ = false;

@@ -23,6 +23,8 @@
 #include <utility>
 #include <vector>
 
+#include "audio/stream_spec.hpp"
+#include "audio/track_publisher.hpp"
 #include "data_track_publisher.hpp"
 #include "protocol/constants.hpp"
 #include "protocol/subscriptions_json.hpp"
@@ -52,6 +54,12 @@ const video::StreamConfig & defaultStreamConfig()
   return kDefaultConfig;
 }
 
+const audio::StreamConfig & defaultAudioStreamConfig()
+{
+  static const audio::StreamConfig kDefaultConfig = audio::makeDefaultConfig();
+  return kDefaultConfig;
+}
+
 const char * targetKindKeyPrefix(SubscriptionTargetKind kind)
 {
   switch (kind) {
@@ -59,6 +67,8 @@ const char * targetKindKeyPrefix(SubscriptionTargetKind kind)
       return "topic";
     case SubscriptionTargetKind::OtherVideo:
       return "other_video";
+    case SubscriptionTargetKind::OtherAudio:
+      return "other_audio";
   }
 
   throw std::invalid_argument("subscription target kind is invalid");
@@ -82,7 +92,7 @@ std::string resolveName(
     return topics.resolve_topic_name(trim(name));
   }
 
-  if (kind == SubscriptionTargetKind::OtherVideo) {
+  if (kind == SubscriptionTargetKind::OtherVideo || kind == SubscriptionTargetKind::OtherAudio) {
     return trim(name);
   }
 
@@ -100,6 +110,7 @@ SubscriptionLeaseManager::SubscriptionLeaseManager(
   AccessPolicy access_policy,
   const SubscriptionQosConfig * qos_config,
   const video::StreamConfig * video_stream_config,
+  const audio::StreamConfig * audio_stream_config,
   Clock::duration heartbeat_lease_duration)
 : node_interfaces_(std::move(parameters), std::move(topics), std::move(graph))
 , clock_(std::move(clock))
@@ -107,6 +118,7 @@ SubscriptionLeaseManager::SubscriptionLeaseManager(
 , access_policy_(std::move(access_policy))
 , qos_config_(qos_config)
 , video_stream_config_(video_stream_config)
+, audio_stream_config_(audio_stream_config)
 , heartbeat_lease_duration_(heartbeat_lease_duration)
 {}
 
@@ -237,6 +249,11 @@ const video::StreamConfig & SubscriptionLeaseManager::videoStreamConfig() const
   return video_stream_config_ == nullptr ? defaultStreamConfig() : *video_stream_config_;
 }
 
+const audio::StreamConfig & SubscriptionLeaseManager::audioStreamConfig() const
+{
+  return audio_stream_config_ == nullptr ? defaultAudioStreamConfig() : *audio_stream_config_;
+}
+
 video::StreamSpec SubscriptionLeaseManager::resolveVideoSpec(
   SubscriptionTargetKind kind, const std::string & name, const std::string & interface_type) const
 {
@@ -245,9 +262,29 @@ video::StreamSpec SubscriptionLeaseManager::resolveVideoSpec(
       return video::resolveRosTopicSpec(videoStreamConfig(), name, interface_type);
     case SubscriptionTargetKind::OtherVideo:
       return video::resolveOtherSourceSpec(videoStreamConfig(), name);
+    case SubscriptionTargetKind::OtherAudio:
+      throw std::invalid_argument("other audio is not a video stream request");
   }
 
-  throw std::invalid_argument("video stream request kind is invalid");
+  // All SubscriptionTargetKind enumerators are handled above; the switch cannot
+  // fall through here, but GCC still requires a return path after the switch.
+  throw std::logic_error("unreachable video stream request kind");
+}
+
+audio::StreamSpec SubscriptionLeaseManager::resolveAudioSpec(
+  SubscriptionTargetKind kind, const std::string & name) const
+{
+  switch (kind) {
+    case SubscriptionTargetKind::OtherAudio:
+      return audio::resolveOtherSourceSpec(audioStreamConfig(), name);
+    case SubscriptionTargetKind::Topic:
+    case SubscriptionTargetKind::OtherVideo:
+      throw std::invalid_argument("only other audio requests resolve to audio streams");
+  }
+
+  // All SubscriptionTargetKind enumerators are handled above; the switch cannot
+  // fall through here, but GCC still requires a return path after the switch.
+  throw std::logic_error("unreachable audio stream request kind");
 }
 
 SubscriptionLeaseManager::ResolvedDemand SubscriptionLeaseManager::resolveDemand(
@@ -270,6 +307,11 @@ void SubscriptionLeaseManager::resolveDemandDelivery(ResolvedDemand & demand) co
     if (!video::classifyRosIngestMode(demand.interface_type).has_value()) {
       return;
     }
+  }
+
+  if (demand.kind == SubscriptionTargetKind::OtherAudio) {
+    demand.audio_spec = resolveAudioSpec(demand.kind, demand.name);
+    return;
   }
 
   demand.video_spec = resolveVideoSpec(demand.kind, demand.name, demand.interface_type);
@@ -454,6 +496,9 @@ SubscriptionStatus SubscriptionLeaseManager::create(
 
   try {
     Runtime runtime = [&]() -> Runtime {
+      if (demand.audio_spec.has_value()) {
+        return Runtime{audio::TrackPublisher::create(room_connection_, *demand.audio_spec)};
+      }
       if (demand.video_spec.has_value()) {
         return Runtime{
           video::TrackPublisher::create(node_interfaces_, room_connection_, *demand.video_spec, qos_config_)};
@@ -541,6 +586,13 @@ SubscriptionStatus SubscriptionLeaseManager::status(const Subscription & subscri
       const auto & video_spec = publisher->spec();
       status.delivery = SubscriptionDeliveryKind::Video;
       status.track_name = video_spec.track_name;
+    }
+
+    void operator()(const AudioPublisher & publisher) const
+    {
+      const auto & audio_spec = publisher->spec();
+      status.delivery = SubscriptionDeliveryKind::Audio;
+      status.track_name = audio_spec.track_name;
     }
   };
 

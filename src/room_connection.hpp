@@ -26,6 +26,7 @@
 
 namespace livekit
 {
+class LocalAudioTrack;
 class LocalDataTrack;
 class LocalVideoTrack;
 struct LocalDataTrackTryPushError;
@@ -95,6 +96,14 @@ public:
     const livekit::TrackPublishOptions & options) = 0;
 
   virtual void unpublishVideoTrack(const std::shared_ptr<livekit::LocalVideoTrack> & track) = 0;
+
+  // Returned audio tracks carry SDK publication identity; stale-track unpublishes are no-ops.
+  virtual std::shared_ptr<livekit::LocalAudioTrack> publishAudioTrack(
+    const std::string & name,
+    const std::shared_ptr<livekit::AudioSource> & source,
+    const livekit::TrackPublishOptions & options) = 0;
+
+  virtual void unpublishAudioTrack(const std::shared_ptr<livekit::LocalAudioTrack> & track) = 0;
 
   // Send raw bytes as a targeted byte stream addressed to exactly one participant.
   // `topic` is the fixed stream topic (e.g. lkros.echo.once); `name` is the per-delivery label the

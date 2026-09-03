@@ -24,11 +24,13 @@
 #include <unordered_set>
 #include <utility>
 
+#include "audio/stream_config.hpp"
 #include "livekit_ros2_bridge/livekit_ros2_bridge_parameters.hpp"
 #include "rclcpp/logging.hpp"
 #include "rmw/qos_string_conversions.h"
 #include "subscription_qos.hpp"
 #include "utils/log_event.hpp"
+#include "utils/param_entries.hpp"
 #include "utils/ros_resource_name_utils.hpp"
 #include "utils/trim.hpp"
 #include "video/stream_config.hpp"
@@ -81,25 +83,7 @@ std::optional<RosPolicy> parseSubscriptionQosPolicy(const std::string & value, P
   return static_cast<RosPolicy>(parsed);
 }
 
-template <typename EntryMap>
-const typename EntryMap::mapped_type & requireUniqueEntry(
-  std::unordered_set<std::string> & seen,
-  const std::string & id,
-  const EntryMap & entries,
-  const char * duplicate_label,
-  const char * missing_label)
-{
-  if (!seen.emplace(id).second) {
-    throw std::runtime_error(std::string("duplicate ") + duplicate_label + " '" + id + "'");
-  }
-
-  const auto it = entries.find(id);
-  if (it == entries.end()) {
-    throw std::runtime_error(std::string(missing_label) + " '" + id + "' is missing generated parameters");
-  }
-
-  return it->second;
-}
+using utils::requireUniqueEntry;
 
 SubscriptionQosConfig loadSubscriptionQosConfig(const Params & params)
 {
@@ -165,6 +149,9 @@ RuntimeConfig loadRuntimeConfig(const rclcpp::node_interfaces::NodeParametersInt
 
     stage = "video_config";
     config.video_stream = video::loadConfig(params);
+
+    stage = "audio_config";
+    config.audio_stream = audio::loadConfig(params);
 
     return config;
   } catch (...) {

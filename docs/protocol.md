@@ -55,7 +55,7 @@ The [`lkros.status`](#data-packet-topic-lkrosstatus) packet carries a protocol v
 ### Terms
 
 - **bridge**: the `livekit_ros2_bridge` participant in the LiveKit room.
-- **canonical name**: the `(kind, name)` pair used to identify a heartbeat target after `topic` names are normalized and `other_video` names are trimmed
+- **canonical name**: the `(kind, name)` pair used to identify a heartbeat target after `topic` names are normalized and `other_video` / `other_audio` names are trimmed
 - **client**: the non-bridge participant interacting with the bridge over LiveKit.
 - **control-plane message**: a bridge-directed message about subscription lease or status state.
 - **data-packet topic**: the LiveKit topic string on a `publishData` packet (outside RPC).
@@ -65,10 +65,11 @@ The [`lkros.status`](#data-packet-topic-lkrosstatus) packet carries a protocol v
 - **ROS publish request**: a bridge-accepted request to publish one message to a ROS topic.
 - **ROS resource name**: a normalized ROS topic or service name accepted as a valid resource identifier by the bridge.
 - **video track**: a LiveKit video publication carrying a ROS-backed or GStreamer-backed stream.
+- **audio track**: a LiveKit audio publication carrying one configured other-audio source as a mono stream.
 
 ## Protocol Surfaces
 
-Every surface in this specification runs over LiveKit. Requests and control flows use RPCs or data packets; streams use data or video tracks.
+Every surface in this specification runs over LiveKit. Requests and control flows use RPCs or data packets; streams use data, video, or audio tracks.
 
 | Type | Name | Flow | Purpose |
 | --- | --- | --- | --- |
@@ -77,6 +78,7 @@ Every surface in this specification runs over LiveKit. Requests and control flow
 | Data-Packet Topic | `ros2.topic.pub` | client → bridge | Best-effort ROS topic publication |
 | Data Track | `delivery.track_name` | bridge → client | Stream active non-video ROS topics |
 | Video Track | `delivery.track_name` | bridge → client | Stream ROS image topics or `other_video` sources |
+| Audio Track | `delivery.track_name` | bridge → client | Stream `other_audio` sources |
 | Byte Stream | `lkros.echo.once` | bridge → client | Deliver a topic's cached last message on request |
 | RPC | `ros2.interface.show` | client ↔ bridge | Fetch interface definitions |
 | RPC | `ros2.service.call` | client ↔ bridge | Call an authorized ROS service |
@@ -206,6 +208,10 @@ Two clients subscribing to the same [normalized](#versioning-and-terminology) no
     {
       "kind": "other_video",
       "name": "front_camera"
+    },
+    {
+      "kind": "other_audio",
+      "name": "cab_mic"
     }
   ]
 }
@@ -217,9 +223,10 @@ Two clients subscribing to the same [normalized](#versioning-and-terminology) no
 
 - `subscriptions` MUST be present and MUST be an array.
 - Each entry MUST be an object with string `kind` and `name` fields.
-- `kind` MUST be `topic` or `other_video`.
+- `kind` MUST be `topic`, `other_video`, or `other_audio`.
 - `topic` names MUST [normalize](#versioning-and-terminology) to non-empty [ROS resource names](#versioning-and-terminology).
 - `other_video` names MUST address configured entries from `video.other.<id>`.
+- `other_audio` names MUST address configured entries from `audio.other.<id>`.
 - `delivery_preferences`, when present, MUST be an object.
 - `delivery_preferences.interval_ms`, when present, MUST be an integer.
 
@@ -227,6 +234,7 @@ Two clients subscribing to the same [normalized](#versioning-and-terminology) no
 
 - `topic` subscriptions MUST be authorized against `access.rules.subscribe.*`.
 - `other_video` targets MUST NOT use `access.rules.subscribe.*`; they are controlled by the configured `video_other_ids` and `video.other.*` entries.
+- `other_audio` targets MUST NOT use `access.rules.subscribe.*`; they are controlled by the configured `audio_other_ids` and `audio.other.*` entries.
 
 #### Coalescing
 
@@ -300,7 +308,7 @@ LiveKit exposes client identity through `caller_identity` on RPCs and `requester
 
 Every entry MUST include:
 
-- `kind`: `topic` or `other_video`.
+- `kind`: `topic`, `other_video`, or `other_audio`.
 - `name`.
 - `status`: `active` or `error`.
 
@@ -310,8 +318,8 @@ Active entries (`status: "active"`):
 
 - MUST include `delivery`.
 - MUST include `interface_type` when `kind` is `topic`, even when delivered as video.
-- MUST NOT include `interface_type` when `kind` is `other_video`.
-- MUST set `delivery.kind` to `data` or `video`.
+- MUST NOT include `interface_type` when `kind` is `other_video` or `other_audio`.
+- MUST set `delivery.kind` to `data`, `video`, or `audio`.
 - MUST include `delivery.track_name`.
 - MAY include `degraded_reason` on video entries when the stream is degraded but still deliverable.
 - MAY include `qos` on data-delivered topics: an object with `durability` (`"volatile"` | `"transient_local"`). A `transient_local` topic supports [`ros2.topic.echo.once`](#rpc-ros2topicechoonce).
@@ -397,6 +405,33 @@ Video deliveries use deterministic track names.
 - Active `topic` entries using video delivery MUST still include `interface_type`.
 - Video `track_name` values MUST be deterministic and stable for the target name.
 - `other_video` track names MUST percent-encode any byte outside the RFC 3986 unreserved set.
+
+### Audio-Track Delivery
+
+Audio deliveries use deterministic track names.
+
+#### Example
+
+```json
+{
+  "kind": "other_audio",
+  "name": "cab_mic",
+  "status": "active",
+  "delivery": {
+    "kind": "audio",
+    "track_name": "lkros.audio.other.cab_mic"
+  }
+}
+```
+
+#### Requirements
+
+- `delivery.kind` MUST be `audio`.
+- `delivery.track_name` MUST always be present.
+- `other_audio` targets MUST always use audio delivery.
+- Audio `track_name` values MUST be deterministic and stable for the target name.
+- `other_audio` track names MUST percent-encode any byte outside the RFC 3986 unreserved set.
+- Each configured other-audio source publishes as exactly one mono audio track; stereo is client-side routing of two mono tracks.
 
 ## Byte Stream: `lkros.echo.once`
 
@@ -753,6 +788,15 @@ A common non-ROS video path:
 1. Send `lkros.heartbeat` with `kind: "other_video"` and the configured source id as `name`.
 2. Read `lkros.status`.
 3. If the status is `active` and `delivery.kind` is `video`, subscribe to the announced LiveKit video publication.
+
+### Other-Audio Flow
+
+A common non-ROS audio path:
+
+1. Send `lkros.heartbeat` with `kind: "other_audio"` and the configured source id as `name`.
+2. Read `lkros.status`.
+3. If the status is `active` and `delivery.kind` is `audio`, subscribe to the announced LiveKit audio publication.
+4. Route each mono audio track to a speaker (e.g. left/right) for a stereo-operator experience.
 
 ### Heartbeat with `session_id` Fallback
 

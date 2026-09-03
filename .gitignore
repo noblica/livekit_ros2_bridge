@@ -31,3 +31,7 @@ livekit_bridge.*.params.yaml
 # Local credentials and tokens
 .bridge.env
 .bridge_token
+
+# Agent working notes (PRDs, scratch analyses; never committed)
+ai_working/
+CONTEXT.md

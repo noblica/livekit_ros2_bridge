@@ -28,8 +28,8 @@
 #include "sensor_msgs/msg/compressed_image.hpp"
 #include "sensor_msgs/msg/image.hpp"
 #include "subscription_qos.hpp"
+#include "utils/pipeline_failure_handler.hpp"
 #include "video/gstreamer_pipeline.hpp"
-#include "video/pipeline_failure_handler.hpp"
 #include "video/stream_spec.hpp"
 
 #include <gst/video/video-format.h>
@@ -103,7 +103,7 @@ private:
   // Protects state shared by ROS callbacks, GStreamer callbacks, and close().
   mutable std::mutex mutex_;
   bool is_shutdown_ = false;
-  PipelineFailureHandler failure_handler_;
+  utils::PipelineFailureHandler failure_handler_;
 };
 
 }  // namespace livekit_ros2_bridge::video

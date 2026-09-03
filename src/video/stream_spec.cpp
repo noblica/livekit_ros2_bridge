@@ -21,6 +21,7 @@
 #include "sensor_msgs/msg/compressed_image.hpp"
 #include "sensor_msgs/msg/image.hpp"
 #include "utils/log_event.hpp"
+#include "utils/percent_encode.hpp"
 #include "utils/ros_resource_name_utils.hpp"
 #include "utils/trim.hpp"
 
@@ -34,7 +35,6 @@ constexpr char kRosTopicKeyPrefix[] = "topic";
 constexpr char kOtherVideoKeyPrefix[] = "other_video";
 constexpr char kRosTopicTrackPrefix[] = "lkros.video.";
 constexpr char kOtherTrackPrefix[] = "lkros.video.other.";
-constexpr char kHexDigits[] = "0123456789ABCDEF";
 const auto kLogger = rclcpp::get_logger("video_stream_spec");
 
 // ROS-topic track names retain the lossy legacy mapping; stream_key carries exact identity.
@@ -61,27 +61,9 @@ std::string makeRosTopicTrackSuffix(std::string_view topic)
   return suffix;
 }
 
-bool isUnreservedTrackByte(unsigned char byte)
-{
-  return (byte >= 'A' && byte <= 'Z') || (byte >= 'a' && byte <= 'z') || (byte >= '0' && byte <= '9') || byte == '-' ||
-         byte == '.' || byte == '_' || byte == '~';
-}
-
 std::string encodeOtherTrackSuffix(std::string_view name)
 {
-  std::string suffix;
-  suffix.reserve(name.size() * 3U);
-  for (const char ch : name) {
-    const auto byte = static_cast<unsigned char>(ch);
-    if (isUnreservedTrackByte(byte)) {
-      suffix.push_back(static_cast<char>(byte));
-      continue;
-    }
-    suffix.push_back('%');
-    suffix.push_back(kHexDigits[byte >> 4U]);
-    suffix.push_back(kHexDigits[byte & 0x0FU]);
-  }
-  return suffix;
+  return utils::percentEncodeUnreserved(name);
 }
 
 const RosTopicRule & selectRosTopicRule(const std::vector<RosTopicRule> & rules, std::string_view topic)

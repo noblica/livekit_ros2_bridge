@@ -27,6 +27,7 @@ enum class SubscriptionTargetKind
 {
   Topic,
   OtherVideo,
+  OtherAudio,
 };
 
 struct SubscriptionDemand
@@ -47,6 +48,7 @@ enum class SubscriptionDeliveryKind
 {
   Data,
   Video,
+  Audio,
 };
 
 struct SubscriptionQos

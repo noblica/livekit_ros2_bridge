@@ -65,3 +65,28 @@ livekit_ros2_bridge:
     #
     # video.other.usb_cam.source: "v4l2src device=/dev/video0 do-timestamp=true"
     # video.other.usb_cam.transform: ""
+
+    # Optional audio sources.
+    # `audio.other.*` run in-process GStreamer source fragments that you provide.
+    # Keep the IDs at the root for now because generate_parameter_library 0.6
+    # in the current test matrix cannot move them cleanly under
+    # `audio.other.ids` yet.
+    # Other audio sources use required `source`, optional `transform`, and
+    # optional `publish.*` overrides. Their ids are trimmed only; `/cab_mic`,
+    # `cab_mic`, and `cab_mic/` are three distinct other audio sources.
+    # The bridge always appends its own queue/convert/resample/mono-48k/appsink
+    # tail, so every source publishes as exactly one mono audio track.
+    #
+    # Optional default LiveKit publish policy:
+    # audio.publish.max_bitrate_bps: 0
+    # audio.publish.dtx: "auto"  # or "enabled", "disabled"
+    # audio.publish.red: "auto"  # or "enabled", "disabled"
+    #
+    # audio_other_ids: ["cab_mic"]
+    #
+    # audio.other.cab_mic.source: "pulsesrc device=alsa_input.pci-0000_00_1f.3.analog-stereo"
+    # audio.other.cab_mic.publish.max_bitrate_bps: 64000
+    # audio.other.cab_mic.publish.dtx: "enabled"
+    #
+    # Test source (no microphone needed):
+    # audio.other.test.source: "audiotestsrc is-live=true wave=sine"

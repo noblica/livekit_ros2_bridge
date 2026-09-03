@@ -20,6 +20,7 @@
 #include <string>
 
 #include "access_policy.hpp"
+#include "audio/stream_spec.hpp"
 #include "rclcpp/node_interfaces/node_parameters_interface.hpp"
 #include "room_connection.hpp"
 #include "subscription_qos.hpp"
@@ -42,6 +43,7 @@ struct RuntimeConfig
   AccessPolicy access_policy;
   SubscriptionQosConfig subscription_qos;
   video::StreamConfig video_stream;
+  audio::StreamConfig audio_stream;
 };
 
 // Loads one ROS parameter snapshot; falls back to LIVEKIT_TOKEN when livekit.token is unset.

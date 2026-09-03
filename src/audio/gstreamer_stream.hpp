@@ -14,14 +14,15 @@
 
 #pragma once
 
+#include <atomic>
 #include <mutex>
 #include <string>
 
+#include "audio/gstreamer_pipeline.hpp"
+#include "audio/stream_spec.hpp"
 #include "utils/pipeline_failure_handler.hpp"
-#include "video/gstreamer_pipeline.hpp"
-#include "video/stream_spec.hpp"
 
-namespace livekit_ros2_bridge::video
+namespace livekit_ros2_bridge::audio
 {
 
 class TrackPublisher;
@@ -52,8 +53,8 @@ private:
   TrackPublisher & publisher_;
   GStreamerPipeline pipeline_;
   mutable std::mutex mutex_;
-  bool is_shutdown_ = false;
+  std::atomic<bool> is_shutdown_{false};
   utils::PipelineFailureHandler failure_handler_;
 };
 
-}  // namespace livekit_ros2_bridge::video
+}  // namespace livekit_ros2_bridge::audio

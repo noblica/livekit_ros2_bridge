@@ -45,6 +45,8 @@ const char * toWire(SubscriptionTargetKind kind)
       return "topic";
     case SubscriptionTargetKind::OtherVideo:
       return "other_video";
+    case SubscriptionTargetKind::OtherAudio:
+      return "other_audio";
   }
 
   throw std::invalid_argument("subscription target kind is invalid");
@@ -124,8 +126,11 @@ void parseTarget(const nlohmann::json & entry, SubscriptionDemand & demand)
     demand.kind = SubscriptionTargetKind::Topic;
   } else if (kind == "other_video") {
     demand.kind = SubscriptionTargetKind::OtherVideo;
+  } else if (kind == "other_audio") {
+    demand.kind = SubscriptionTargetKind::OtherAudio;
   } else {
-    throw ValidationError(kSubscriptionKindField, "heartbeat subscription 'kind' must be 'topic' or 'other_video'");
+    throw ValidationError(
+      kSubscriptionKindField, "heartbeat subscription 'kind' must be 'topic', 'other_video', or 'other_audio'");
   }
 
   const auto name_field = entry.find("name");
@@ -148,7 +153,7 @@ void parseTarget(const nlohmann::json & entry, SubscriptionDemand & demand)
   demand.name = trim(raw);
   if (demand.name.empty()) {
     throw ValidationError(
-      kSubscriptionNameField, "heartbeat subscription other video name must trim to a non-empty name");
+      kSubscriptionNameField, "heartbeat subscription other source name must trim to a non-empty name");
   }
 }
 
@@ -179,6 +184,9 @@ nlohmann::json serialize(const SubscriptionStatus & status)
       break;
     case SubscriptionDeliveryKind::Video:
       delivery_kind = protocol::kVideoDeliveryKind;
+      break;
+    case SubscriptionDeliveryKind::Audio:
+      delivery_kind = protocol::kAudioDeliveryKind;
       break;
   }
   if (delivery_kind == nullptr) {
