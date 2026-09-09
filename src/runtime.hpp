@@ -19,6 +19,7 @@
 #include <string>
 
 #include "connection_watchdog.hpp"
+#include "poc/talkback_poc.hpp"
 #include "rclcpp/clock.hpp"
 #include "rclcpp/logger.hpp"
 #include "rclcpp/node_interfaces/node_base_interface.hpp"
@@ -79,6 +80,9 @@ private:
   SubscriptionLeaseManager subscription_lease_manager_;
   RpcRouter rpc_router_;
   ConnectionWatchdog watchdog_;
+  // Talkback POC (Layer A). Null unless LIVEKIT_TALKBACK_POC=1 at construction;
+  // normal runs are unaffected.
+  std::unique_ptr<TalkbackPoc> talkback_poc_;
 };
 
 }  // namespace livekit_ros2_bridge

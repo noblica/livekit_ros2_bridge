@@ -147,6 +147,7 @@ add_library(${PROJECT_NAME} SHARED
   src/protocol/subscriptions_json.cpp
   src/protocol/topic_publish_json.cpp
   src/room_connection.cpp
+  src/poc/talkback_poc.cpp
   src/ros_executor_queue.cpp
   src/ros_service_caller.cpp
   src/ros_topic_publisher.cpp

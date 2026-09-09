@@ -735,6 +735,70 @@ private:
     LogEvent(kLogger, "room_moved").fieldOr("room_sid", event.info.sid).info();
   }
 
+  void onTrackPublished(livekit::Room &, const livekit::TrackPublishedEvent & event) override
+  {
+    std::function<void(const livekit::TrackPublishedEvent &)> callback;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (state_ == livekit::ConnectionState::Disconnected) {
+        return;
+      }
+      callback = callbacks_.on_track_published;
+    }
+
+    if (callback) {
+      callback(event);
+    }
+  }
+
+  void onTrackUnpublished(livekit::Room &, const livekit::TrackUnpublishedEvent & event) override
+  {
+    std::function<void(const livekit::TrackUnpublishedEvent &)> callback;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (state_ == livekit::ConnectionState::Disconnected) {
+        return;
+      }
+      callback = callbacks_.on_track_unpublished;
+    }
+
+    if (callback) {
+      callback(event);
+    }
+  }
+
+  void onTrackSubscribed(livekit::Room &, const livekit::TrackSubscribedEvent & event) override
+  {
+    std::function<void(const livekit::TrackSubscribedEvent &)> callback;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (state_ == livekit::ConnectionState::Disconnected) {
+        return;
+      }
+      callback = callbacks_.on_track_subscribed;
+    }
+
+    if (callback) {
+      callback(event);
+    }
+  }
+
+  void onTrackUnsubscribed(livekit::Room &, const livekit::TrackUnsubscribedEvent & event) override
+  {
+    std::function<void(const livekit::TrackUnsubscribedEvent &)> callback;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (state_ == livekit::ConnectionState::Disconnected) {
+        return;
+      }
+      callback = callbacks_.on_track_unsubscribed;
+    }
+
+    if (callback) {
+      callback(event);
+    }
+  }
+
   void onUserPacketReceived(livekit::Room &, const livekit::UserDataPacketEvent & event) override
   {
     std::function<void(const livekit::UserDataPacketEvent &)> callback;
