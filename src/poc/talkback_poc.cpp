@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// TALKBACK POC (Layer A) — THROWAWAY CODE, DO NOT MERGE.
-// See talkback_poc.hpp. Design doc: operator-talkback-design.md §5/§7.
-// PRD: talkback-poc-layer-a-prd.md.
+// TALKBACK POC — THROWAWAY CODE, DO NOT MERGE.
+// See talkback_poc.hpp. POC results: operator-talkback-poc-results.md.
 
 #include "poc/talkback_poc.hpp"
 

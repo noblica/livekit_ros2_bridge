@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// TALKBACK POC (Layer B) — THROWAWAY CODE, DO NOT MERGE.
-// See talkback_sink.hpp. Design doc: operator-talkback-design.md §5/§7.
-// PRD: talkback-poc-layer-b-prd.md.
+// TALKBACK POC — THROWAWAY CODE, DO NOT MERGE.
+// See talkback_sink.hpp. POC results: operator-talkback-poc-results.md.
 
 #include "poc/talkback_sink.hpp"
 
@@ -37,7 +36,7 @@ constexpr auto kRestartDelay = std::chrono::milliseconds(250);
 const char kAppSrcName[] = "bridge_talkback_src";
 
 // Mirrors the publish tail's philosophy (bridge owns the edge, leaky queue,
-// newest-audio-wins); pulsesink hardcoded per the Layer B PRD.
+// newest-audio-wins); pulsesink hardcoded.
 std::string buildSinkPipelineDescription()
 {
   std::string description = "appsrc name=";
@@ -233,7 +232,7 @@ void TalkbackSink::restartPipeline()
     startPipelineLocked();
   } catch (const std::exception & exc) {
     // No retry cap: a permanently missing device restarts at ~4/s, bounded by
-    // the 250 ms delay, while the node stays alive (Layer B PRD story 5).
+    // the 250 ms delay, while the node stays alive.
     LogEvent(kLogger, "talkback_poc_sink_restart_failed").fieldOr("error", exc.what()).warn();
   }
 }

@@ -80,7 +80,7 @@ private:
   SubscriptionLeaseManager subscription_lease_manager_;
   RpcRouter rpc_router_;
   ConnectionWatchdog watchdog_;
-  // Talkback POC (Layer A). Null unless LIVEKIT_TALKBACK_POC=1 at construction;
+  // Talkback POC. Null unless LIVEKIT_TALKBACK_POC=1 at construction;
   // normal runs are unaffected.
   std::unique_ptr<TalkbackPoc> talkback_poc_;
 };

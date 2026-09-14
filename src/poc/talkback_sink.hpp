@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// TALKBACK POC (Layer B) — THROWAWAY CODE, DO NOT MERGE.
+// TALKBACK POC — THROWAWAY CODE, DO NOT MERGE.
 // Proves the bridge can play received PCM out a real audio device through a
-// bridge-owned GStreamer appsrc sink pipeline. Feeds the results section of
-// operator-talkback-design.md §7; delete this file (and its wiring) once the
+// bridge-owned GStreamer appsrc sink pipeline. Feeds the results in
+// operator-talkback-poc-results.md; delete this file (and its wiring) once the
 // POC matrix is recorded.
 
 #pragma once
@@ -104,7 +104,7 @@ private:
   // loop without touching mutex_: a restart attempt that fails swallows its
   // own bus error (schedule() refuses callbacks while callback_running_), and
   // a dead pipeline emits no further messages — the 10 ms push cadence is
-  // what keeps the ~4 restarts/sec loop alive (Layer B PRD story 5).
+  // what keeps the ~4 restarts/sec loop alive.
   std::atomic<bool> pipeline_active_{false};
 
   // 0 = unclaimed; otherwise the owning reader_id. Claim/release only via CAS.

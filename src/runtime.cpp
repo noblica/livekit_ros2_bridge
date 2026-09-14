@@ -32,7 +32,7 @@ namespace livekit_ros2_bridge
 namespace
 {
 
-// Talkback POC (Layer A) gate. Reads the env at Runtime construction; default
+// Talkback POC gate. Reads the env at Runtime construction; default
 // OFF so normal runs are unchanged.
 bool talkbackPocRequested()
 {
@@ -87,7 +87,7 @@ Runtime::Runtime(Runtime::NodeInterfaces interfaces, std::unique_ptr<RoomConnect
   }
 
   if (talkbackPocRequested()) {
-    // TALKBACK POC (Layer A) — throwaway; delete with src/poc/.
+    // TALKBACK POC — throwaway; delete with src/poc/.
     talkback_poc_ = std::make_unique<TalkbackPoc>(logger_, std::string(kTalkbackPocWavDir));
   } else {
     LogEvent(logger_, "talkback_poc_disabled").info();
@@ -131,7 +131,7 @@ RoomEventCallbacks Runtime::makeRoomCallbacks()
     });
   };
 
-  // TALKBACK POC (Layer A): these run on SDK delegate threads and are wrapped
+  // TALKBACK POC: these run on SDK delegate threads and are wrapped
   // in callback_gate_ like every other callback, so they are rejected once
   // teardown begins (the gate closes before talkback_poc_ is destroyed).
   // TalkbackPoc logs/threads only — no ROS work is submitted.

@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// TALKBACK POC (Layer A) — THROWAWAY CODE, DO NOT MERGE.
+// TALKBACK POC — THROWAWAY CODE, DO NOT MERGE.
 // Proves the bridge can subscribe to a remote client audio track and read
-// decoded PCM from it. Feeds the results section of operator-talkback-design.md
-// §7; delete this file (and its wiring) once the POC matrix is recorded.
+// decoded PCM from it. Feeds the results in operator-talkback-poc-results.md;
+// delete this file (and its wiring) once the POC matrix is recorded.
 
 #pragma once
 
