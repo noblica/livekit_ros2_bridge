@@ -151,6 +151,7 @@ struct TalkbackPoc::ReaderState
 TalkbackPoc::TalkbackPoc(rclcpp::Logger logger, std::string wav_dir)
 : logger_(std::move(logger))
 , wav_dir_(std::move(wav_dir))
+, sink_(std::make_shared<TalkbackSink>())
 {
   std::error_code fs_error;
   std::filesystem::create_directories(wav_dir_, fs_error);
@@ -167,8 +168,11 @@ TalkbackPoc::~TalkbackPoc()
 {
   // Signal every reader to exit; each detached thread checks shutdown_ before
   // using its ReaderState, so a reader mid-read() finishes its iteration and
-  // exits without touching other TalkbackPoc members.
+  // exits without touching other TalkbackPoc members. The sink survives via
+  // reader-thread shared_ptr copies until the last reader releases it, but
+  // playback is stopped here deterministically.
   shutdown_.store(true);
+  sink_->stop();
   std::lock_guard<std::mutex> lock(mutex_);
   for (auto & [track_sid, reader] : readers_) {
     (void)track_sid;
@@ -257,7 +261,7 @@ void TalkbackPoc::onTrackSubscribed(const livekit::TrackSubscribedEvent & event)
   //   refcounted/shared state is touched after that point, so this cannot
   //   use-after-free TalkbackPoc; the worst case is a leaked thread + stream
   //   until the process exits or the SDK closes the stream.
-  std::thread([reader, stream, reader_id, wav_dir = wav_dir_]() {
+  std::thread([reader, stream, reader_id, wav_dir = wav_dir_, sink = sink_]() {
     const std::string & track_sid = reader->track_sid;
 
     std::string wav_path;
@@ -280,6 +284,7 @@ void TalkbackPoc::onTrackSubscribed(const livekit::TrackSubscribedEvent & event)
         patchWavHeader(wav_path, data_bytes);
         wav_open = false;
       }
+      sink->unbind(reader_id);
       const double seconds = wav_sample_rate > 0 && wav_num_channels > 0
                                ? static_cast<double>(total_samples) /
                                    (static_cast<double>(wav_sample_rate) * static_cast<double>(wav_num_channels))
@@ -328,6 +333,8 @@ void TalkbackPoc::onTrackSubscribed(const livekit::TrackSubscribedEvent & event)
           writeWavHeader(wav_file, wav_sample_rate, wav_num_channels);
           wav_open = true;
         }
+        const bool sink_active =
+          sink->onFirstFrame(reader_id, track_sid, static_cast<int>(frame.sampleRate()), frame.numChannels());
         LogEvent(kLogger, "talkback_poc_first_frame")
           .field("reader_id", reader_id)
           .fieldOr("track_sid", track_sid)
@@ -337,6 +344,7 @@ void TalkbackPoc::onTrackSubscribed(const livekit::TrackSubscribedEvent & event)
           .field("num_channels", wav_num_channels)
           .field("samples_per_channel", frame.samplesPerChannel())
           .fieldOr("wav_path", wav_open ? wav_path : std::string())
+          .field("sink_active", sink_active)
           .info();
       }
 
@@ -363,6 +371,10 @@ void TalkbackPoc::onTrackSubscribed(const livekit::TrackSubscribedEvent & event)
           wav_file.close();
           wav_open = false;
         }
+      }
+
+      if (!samples.empty()) {
+        sink->push(reader_id, samples.data(), samples.size());
       }
 
       const auto now = std::chrono::steady_clock::now();

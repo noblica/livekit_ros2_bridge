@@ -27,6 +27,7 @@
 #include <unordered_map>
 
 #include "livekit/room_event_types.h"
+#include "poc/talkback_sink.hpp"
 #include "rclcpp/logger.hpp"
 
 namespace livekit
@@ -67,6 +68,7 @@ private:
   // threads capture copies or shared_ptrs and never dereference `this`.
   const rclcpp::Logger logger_;
   const std::string wav_dir_;
+  std::shared_ptr<TalkbackSink> sink_;
 
   // Guards readers_. Reader threads own their ReaderState exclusively; the map
   // only locates the shared stop flag and the stream for close().

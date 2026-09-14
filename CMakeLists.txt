@@ -148,6 +148,7 @@ add_library(${PROJECT_NAME} SHARED
   src/protocol/topic_publish_json.cpp
   src/room_connection.cpp
   src/poc/talkback_poc.cpp
+  src/poc/talkback_sink.cpp
   src/ros_executor_queue.cpp
   src/ros_service_caller.cpp
   src/ros_topic_publisher.cpp
@@ -167,6 +168,8 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
   rclcpp_components::component
 )
 target_link_libraries(${PROJECT_NAME} PRIVATE
+  PkgConfig::gstreamer
+  PkgConfig::gstreamer-app
   livekit_ros2_bridge_parameters
   livekit_ros2_bridge_ros_interfaces
   livekit_ros2_bridge_video
@@ -257,7 +260,8 @@ if(BUILD_TESTING)
   livekit_ros2_bridge_add_test(test_ros_resource_name_utils test/cpp/test_ros_resource_name_utils.cpp)
   livekit_ros2_bridge_add_test(test_ros_service_caller test/cpp/test_ros_service_caller.cpp ${std_srvs_TARGETS})
   livekit_ros2_bridge_add_test(test_rpc_router test/cpp/test_rpc_router.cpp ${std_srvs_TARGETS})
-  livekit_ros2_bridge_add_test(test_runtime test/cpp/test_runtime.cpp ${std_srvs_TARGETS})
+  livekit_ros2_bridge_add_test(test_runtime test/cpp/test_runtime.cpp ${std_srvs_TARGETS}
+    PkgConfig::gstreamer PkgConfig::gstreamer-app)
   livekit_ros2_bridge_add_test(test_room_connection test/cpp/test_room_connection.cpp)
   livekit_ros2_bridge_add_test(test_runtime_config test/cpp/test_runtime_config.cpp)
   livekit_ros2_bridge_add_test(test_scope_exit test/cpp/test_scope_exit.cpp)
