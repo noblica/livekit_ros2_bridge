@@ -761,16 +761,17 @@ Any payload is valid. The bridge accepts and ignores it:
 ### Response Requirements
 
 - A successful response MUST be a JSON object with a `features` field.
-- `features` MUST be a JSON object keyed by feature name with boolean values. Presence in the object advertises the feature; a feature that is not available on the bridge MUST be absent from the object rather than advertised with `false`.
+- `features` MUST be a JSON object keyed by feature name with boolean values, all of which are `true` in this protocol version. Presence in the object advertises the feature; a feature that is not available on the bridge MUST be absent from the object rather than advertised with `false`.
 - The response MUST NOT contain version or protocol-version fields.
 - A feature MUST be advertised if and only if its availability is configuration-derived; a feature absent from `features` means "not available on this bridge".
 - The schema is additive: new feature names MAY appear in later versions, and clients MUST ignore unknown feature names.
+- A bridge that predates this RPC answers with the LiveKit SDK's built-in unsupported-method error (`1400`). A client MUST treat that error as "this bridge does not support capability discovery" and MUST NOT interpret it as an empty feature set; the error and the empty `features` object are the two states of the discovery contract.
 
 ### Notes
 
-Any LiveKit room participant MAY call this method at any time — typically on room join — without a heartbeat flow or subscription state. On bridges that predate this RPC, the LiveKit SDK answers with its built-in unsupported-method error (`1400`); clients MUST treat that error as "no feature discovery", which is distinct from the empty `features` object a current bridge returns.
+Any LiveKit room participant MAY call this method at any time — typically on room join — without a heartbeat flow or subscription state. On bridges that predate this RPC, the LiveKit SDK answers with its built-in unsupported-method error (`1400`), the error side of the two-state contract above.
 
-The response is visible to every room participant and contains no ROS resource names, so it discloses nothing about the ROS graph.
+The response is delivered unicast to the caller, who may be any room participant, and contains no ROS resource names, so it discloses nothing about the ROS graph.
 
 This method is purely additive and requires no protocol-version bump: old clients never call it, and new clients tolerate old bridges via the unknown-method error.
 
@@ -797,13 +798,14 @@ Rough mapping from familiar `ros2` commands to the bridge. Request-response work
 Most integrations follow this order:
 
 1. Join the same LiveKit room as the bridge.
-2. Call `ros2.topic.list` and `ros2.service.list` to discover the resources your policy allows.
-3. Call `ros2.interface.show` for the message and service types you need to encode or decode.
-4. Use `ros2.service.call` for request-response operations.
-5. Send `ros2.topic.pub` packets for small allowed topic writes.
-6. Send `lkros.heartbeat` on a regular cadence to request topic or video subscriptions.
-7. Read `lkros.status` to learn whether each requested subscription is active, forbidden, or not found.
-8. Subscribe to the announced LiveKit data track or video publication.
+2. Call `lkros.capability` to learn which optional bridge features are available (an unsupported-method error means the bridge predates feature discovery).
+3. Call `ros2.topic.list` and `ros2.service.list` to discover the resources your policy allows.
+4. Call `ros2.interface.show` for the message and service types you need to encode or decode.
+5. Use `ros2.service.call` for request-response operations.
+6. Send `ros2.topic.pub` packets for small allowed topic writes.
+7. Send `lkros.heartbeat` on a regular cadence to request topic or video subscriptions.
+8. Read `lkros.status` to learn whether each requested subscription is active, forbidden, or not found.
+9. Subscribe to the announced LiveKit data track or video publication.
 
 For a first integration, start with one service-call path or one topic-subscription path. Once that works, add more interface types, video, and broader policy rules.
 
