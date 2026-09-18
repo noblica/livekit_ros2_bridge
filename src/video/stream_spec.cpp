@@ -61,7 +61,7 @@ std::string makeRosTopicTrackSuffix(std::string_view topic)
   return suffix;
 }
 
-std::string encodeOtherTrackSuffix(std::string_view name)
+std::string encodeExternalTrackSuffix(std::string_view name)
 {
   return utils::percentEncodeUnreserved(name);
 }
@@ -100,9 +100,9 @@ const RosInput & requireRosInput(const StreamSpec & spec)
   throw std::logic_error("Video stream spec does not contain a ROS video input.");
 }
 
-const OtherInput & requireOtherInput(const StreamSpec & spec)
+const ExternalInput & requireExternalInput(const StreamSpec & spec)
 {
-  if (const auto * input = std::get_if<OtherInput>(&spec.input); input != nullptr) {
+  if (const auto * input = std::get_if<ExternalInput>(&spec.input); input != nullptr) {
     return *input;
   }
   throw std::logic_error("Video stream spec does not contain an external-video input.");
@@ -141,15 +141,15 @@ StreamSpec resolveRosTopicSpec(
   return spec;
 }
 
-StreamSpec resolveOtherSourceSpec(const StreamConfig & config, const std::string & source_name)
+StreamSpec resolveExternalSourceSpec(const StreamConfig & config, const std::string & source_name)
 {
   const std::string name = trim(source_name);
   if (name.empty()) {
     throw std::invalid_argument("Invalid external video name.");
   }
 
-  const auto it = config.other_sources.find(name);
-  if (it == config.other_sources.end()) {
+  const auto it = config.external_sources.find(name);
+  if (it == config.external_sources.end()) {
     throw std::invalid_argument("Unknown external video source '" + name + "'.");
   }
 
@@ -157,8 +157,8 @@ StreamSpec resolveOtherSourceSpec(const StreamConfig & config, const std::string
 
   StreamSpec spec;
   spec.stream_key = std::string{kExternalVideoKeyPrefix} + ":" + name;
-  spec.track_name = std::string{kExternalTrackPrefix} + encodeOtherTrackSuffix(name);
-  spec.input = OtherInput{
+  spec.track_name = std::string{kExternalTrackPrefix} + encodeExternalTrackSuffix(name);
+  spec.input = ExternalInput{
     name,
     source.source_fragment,
     source.transform_fragment,

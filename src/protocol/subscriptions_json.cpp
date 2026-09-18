@@ -43,9 +43,9 @@ const char * toWire(SubscriptionTargetKind kind)
   switch (kind) {
     case SubscriptionTargetKind::Topic:
       return "topic";
-    case SubscriptionTargetKind::OtherVideo:
+    case SubscriptionTargetKind::ExternalVideo:
       return "external_video";
-    case SubscriptionTargetKind::OtherAudio:
+    case SubscriptionTargetKind::ExternalAudio:
       return "external_audio";
   }
 
@@ -125,12 +125,12 @@ void parseTarget(const nlohmann::json & entry, SubscriptionDemand & demand)
   if (kind == "topic") {
     demand.kind = SubscriptionTargetKind::Topic;
   } else if (kind == "external_video") {
-    demand.kind = SubscriptionTargetKind::OtherVideo;
+    demand.kind = SubscriptionTargetKind::ExternalVideo;
   } else if (kind == "external_audio") {
-    demand.kind = SubscriptionTargetKind::OtherAudio;
+    demand.kind = SubscriptionTargetKind::ExternalAudio;
   } else if (kind == "other_video" || kind == "other_audio") {
     // Deprecated alias for one release; old clients still send other_*.
-    demand.kind = kind == "other_video" ? SubscriptionTargetKind::OtherVideo : SubscriptionTargetKind::OtherAudio;
+    demand.kind = kind == "other_video" ? SubscriptionTargetKind::ExternalVideo : SubscriptionTargetKind::ExternalAudio;
   } else {
     throw ValidationError(
       kSubscriptionKindField, "heartbeat subscription 'kind' must be 'topic', 'external_video', or 'external_audio'");

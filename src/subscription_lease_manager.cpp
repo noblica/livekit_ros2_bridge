@@ -65,9 +65,9 @@ const char * targetKindKeyPrefix(SubscriptionTargetKind kind)
   switch (kind) {
     case SubscriptionTargetKind::Topic:
       return "topic";
-    case SubscriptionTargetKind::OtherVideo:
+    case SubscriptionTargetKind::ExternalVideo:
       return "external_video";
-    case SubscriptionTargetKind::OtherAudio:
+    case SubscriptionTargetKind::ExternalAudio:
       return "external_audio";
   }
 
@@ -92,7 +92,7 @@ std::string resolveName(
     return topics.resolve_topic_name(trim(name));
   }
 
-  if (kind == SubscriptionTargetKind::OtherVideo || kind == SubscriptionTargetKind::OtherAudio) {
+  if (kind == SubscriptionTargetKind::ExternalVideo || kind == SubscriptionTargetKind::ExternalAudio) {
     return trim(name);
   }
 
@@ -260,9 +260,9 @@ video::StreamSpec SubscriptionLeaseManager::resolveVideoSpec(
   switch (kind) {
     case SubscriptionTargetKind::Topic:
       return video::resolveRosTopicSpec(videoStreamConfig(), name, interface_type);
-    case SubscriptionTargetKind::OtherVideo:
-      return video::resolveOtherSourceSpec(videoStreamConfig(), name);
-    case SubscriptionTargetKind::OtherAudio:
+    case SubscriptionTargetKind::ExternalVideo:
+      return video::resolveExternalSourceSpec(videoStreamConfig(), name);
+    case SubscriptionTargetKind::ExternalAudio:
       throw std::invalid_argument("external audio is not a video stream request");
   }
 
@@ -275,10 +275,10 @@ audio::StreamSpec SubscriptionLeaseManager::resolveAudioSpec(
   SubscriptionTargetKind kind, const std::string & name) const
 {
   switch (kind) {
-    case SubscriptionTargetKind::OtherAudio:
-      return audio::resolveOtherSourceSpec(audioStreamConfig(), name);
+    case SubscriptionTargetKind::ExternalAudio:
+      return audio::resolveExternalSourceSpec(audioStreamConfig(), name);
     case SubscriptionTargetKind::Topic:
-    case SubscriptionTargetKind::OtherVideo:
+    case SubscriptionTargetKind::ExternalVideo:
       throw std::invalid_argument("only external audio requests resolve to audio streams");
   }
 
@@ -309,7 +309,7 @@ void SubscriptionLeaseManager::resolveDemandDelivery(ResolvedDemand & demand) co
     }
   }
 
-  if (demand.kind == SubscriptionTargetKind::OtherAudio) {
+  if (demand.kind == SubscriptionTargetKind::ExternalAudio) {
     demand.audio_spec = resolveAudioSpec(demand.kind, demand.name);
     return;
   }

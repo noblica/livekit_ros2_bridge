@@ -264,10 +264,10 @@ TEST_F(RuntimeConfigTest, GeneratedVideoEntriesLoadFromSplitParams)
   EXPECT_EQ(front_rule.transform_fragment, "videoconvert ! videoscale ! video/x-raw,width=640,height=360");
   const auto & fallback_rule = config.video_stream.ros_topic_rules.back();
   EXPECT_EQ(fallback_rule.rule_id, "default_ros");
-  ASSERT_EQ(config.video_stream.other_sources.size(), 1U);
+  ASSERT_EQ(config.video_stream.external_sources.size(), 1U);
   EXPECT_EQ(
-    config.video_stream.other_sources.at("front_rtsp").source_fragment, "videotestsrc is-live=true pattern=ball");
-  EXPECT_EQ(config.video_stream.other_sources.at("front_rtsp").transform_fragment, "videobalance saturation=0.0");
+    config.video_stream.external_sources.at("front_rtsp").source_fragment, "videotestsrc is-live=true pattern=ball");
+  EXPECT_EQ(config.video_stream.external_sources.at("front_rtsp").transform_fragment, "videobalance saturation=0.0");
 }
 
 TEST_F(RuntimeConfigTest, TrackPublishOptionsLoadFromUnifiedParams)
@@ -421,7 +421,7 @@ TEST_F(RuntimeConfigTest, VideoPublishOverrideCanSetSingleFieldWithoutTransformF
     const RuntimeConfig config = loadRuntimeConfigForNode("startup_config_external_video_publish_override", options);
 
     expectPublishOptionsEq(
-      config.video_stream.other_sources.at("front").publish_options,
+      config.video_stream.external_sources.at("front").publish_options,
       makeExpectedPublishOptions(kLivekitVideoCodecH265, 500000U, 30.0, false));
   }
 }
@@ -468,7 +468,7 @@ TEST_F(RuntimeConfigTest, MissingGeneratedVideoParametersAreRejectedByParameterL
   }
 }
 
-TEST_F(RuntimeConfigTest, OtherVideoRejectsWhitespaceOnlySourceFragment)
+TEST_F(RuntimeConfigTest, ExternalVideoRejectsWhitespaceOnlySourceFragment)
 {
   auto options = makeStaticTokenOptions();
   options.append_parameter_override("video_external_ids", std::vector<std::string>{"front"});
@@ -536,7 +536,7 @@ TEST_F(RuntimeConfigTest, DuplicateVideoIdsReportSectionSpecificErrors)
   }
 }
 
-TEST_F(RuntimeConfigTest, SlashVariantsLoadAsDistinctOtherSources)
+TEST_F(RuntimeConfigTest, SlashVariantsLoadAsDistinctExternalSources)
 {
   const std::string node_name = "startup_config_distinct_slash_external_video_sources";
   const auto params_path =
@@ -558,16 +558,16 @@ TEST_F(RuntimeConfigTest, SlashVariantsLoadAsDistinctOtherSources)
   options.arguments({"--ros-args", "--params-file", params_path.string()});
   const RuntimeConfig config = loadRuntimeConfigForNode(node_name, options);
 
-  ASSERT_EQ(config.video_stream.other_sources.size(), 2U);
+  ASSERT_EQ(config.video_stream.external_sources.size(), 2U);
   EXPECT_EQ(
-    config.video_stream.other_sources.at("/front_rtsp").source_fragment, "videotestsrc is-live=true pattern=ball");
+    config.video_stream.external_sources.at("/front_rtsp").source_fragment, "videotestsrc is-live=true pattern=ball");
   EXPECT_EQ(
-    config.video_stream.other_sources.at("/front_rtsp/").source_fragment, "videotestsrc is-live=true pattern=smpte");
+    config.video_stream.external_sources.at("/front_rtsp/").source_fragment, "videotestsrc is-live=true pattern=smpte");
 
   std::filesystem::remove(params_path);
 }
 
-TEST_F(RuntimeConfigTest, OtherAudioLoadsWithGlobalAndPerSourcePublishOptions)
+TEST_F(RuntimeConfigTest, ExternalAudioLoadsWithGlobalAndPerSourcePublishOptions)
 {
   auto options = makeStaticTokenOptions();
   options.append_parameter_override("audio.publish.max_bitrate_bps", 64000);
@@ -580,7 +580,7 @@ TEST_F(RuntimeConfigTest, OtherAudioLoadsWithGlobalAndPerSourcePublishOptions)
 
   const RuntimeConfig config = loadRuntimeConfigForNode("startup_config_external_audio_publish_override", options);
 
-  const auto & source = config.audio_stream.other_sources.at("cab_mic");
+  const auto & source = config.audio_stream.external_sources.at("cab_mic");
   EXPECT_EQ(source.source_fragment, "audiotestsrc is-live=true wave=sine");
   ASSERT_TRUE(source.publish_options.audio_encoding.has_value());
   EXPECT_EQ(source.publish_options.audio_encoding->max_bitrate, 96000U);
@@ -588,7 +588,7 @@ TEST_F(RuntimeConfigTest, OtherAudioLoadsWithGlobalAndPerSourcePublishOptions)
   EXPECT_EQ(source.publish_options.red, false);
 }
 
-TEST_F(RuntimeConfigTest, OtherAudioRejectsWhitespaceOnlySourceFragment)
+TEST_F(RuntimeConfigTest, ExternalAudioRejectsWhitespaceOnlySourceFragment)
 {
   auto options = makeStaticTokenOptions();
   options.append_parameter_override("audio_external_ids", std::vector<std::string>{"cab_mic"});

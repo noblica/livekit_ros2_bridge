@@ -141,7 +141,7 @@ livekit::TrackPublishOptions parsePublishOptions(const EntryT & entry, const liv
 }
 
 constexpr utils::EndpointLayout kRosTopicRuleLayout{1U, 1U, 1U, 1U, kBridgeAppSrcName, kBridgeAppSinkName};
-constexpr utils::EndpointLayout kOtherSourceLayout = utils::makeOtherSourceLayout(kBridgeAppSinkName);
+constexpr utils::EndpointLayout kExternalSourceLayout = utils::makeExternalSourceLayout(kBridgeAppSinkName);
 
 using utils::requireUniqueEntry;
 
@@ -194,7 +194,7 @@ StreamConfig loadConfig(const Params & params)
       throw std::runtime_error(source_context + " requires a non-empty source");
     }
     const std::string transform = trim(entry.transform);
-    validatePipeline(source_context, buildPipelineDescription(source_fragment, transform), kOtherSourceLayout);
+    validatePipeline(source_context, buildPipelineDescription(source_fragment, transform), kExternalSourceLayout);
 
     // Only trim surrounding whitespace; slash and colon variants stay distinct.
     const std::string name = trim(id);
@@ -205,11 +205,11 @@ StreamConfig loadConfig(const Params & params)
       throw std::runtime_error("duplicate external video source name '" + name + "'");
     }
 
-    OtherSource source;
+    ExternalSource source;
     source.source_fragment = source_fragment;
     source.transform_fragment = transform;
     source.publish_options = parsePublishOptions(entry, config.default_publish_options);
-    config.other_sources.emplace(name, std::move(source));
+    config.external_sources.emplace(name, std::move(source));
   }
 
   config.ros_topic_rules.insert(

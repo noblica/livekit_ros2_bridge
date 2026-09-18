@@ -111,14 +111,14 @@ TEST(SubscriptionPayloadsTest, ParseHeartbeatNormalizesTargetsAndIntervals)
   expectDemand(
     nlohmann::json::parse(
       R"({"subscriptions":[{"kind":"external_video","name":" front_camera ","delivery_preferences":{"interval_ms":125}}]})"),
-    SubscriptionTargetKind::OtherVideo,
+    SubscriptionTargetKind::ExternalVideo,
     "front_camera",
     125);
 
   expectDemand(
     nlohmann::json::parse(
       R"({"subscriptions":[{"kind":"external_audio","name":" cab_mic ","delivery_preferences":{"interval_ms":125}}]})"),
-    SubscriptionTargetKind::OtherAudio,
+    SubscriptionTargetKind::ExternalAudio,
     "cab_mic",
     125);
 
@@ -135,14 +135,14 @@ TEST(SubscriptionPayloadsTest, ParseHeartbeatAcceptsDeprecatedOtherKindsAsAliase
   expectDemand(
     nlohmann::json::parse(
       R"({"subscriptions":[{"kind":" other_video ","name":" front_camera ","delivery_preferences":{"interval_ms":125}}]})"),
-    SubscriptionTargetKind::OtherVideo,
+    SubscriptionTargetKind::ExternalVideo,
     "front_camera",
     125);
 
   expectDemand(
     nlohmann::json::parse(
       R"({"subscriptions":[{"kind":"other_audio","name":" cab_mic ","delivery_preferences":{"interval_ms":125}}]})"),
-    SubscriptionTargetKind::OtherAudio,
+    SubscriptionTargetKind::ExternalAudio,
     "cab_mic",
     125);
 }
@@ -294,7 +294,7 @@ TEST(SubscriptionPayloadsTest, ParseHeartbeatCoalescesDuplicateExternalVideoTarg
       {"kind":"external_video","name":" front_camera ","delivery_preferences":{"interval_ms":125}},
       {"kind":" external_video ","name":"front_camera","delivery_preferences":{"interval_ms":25}}
     ]})"),
-    SubscriptionTargetKind::OtherVideo,
+    SubscriptionTargetKind::ExternalVideo,
     "front_camera",
     25);
 }
@@ -345,7 +345,7 @@ TEST(SubscriptionPayloadsTest, ParseHeartbeatKeepsDistinctTargetsSeparate)
   ASSERT_EQ(heartbeat.demands.size(), 4U);
   EXPECT_EQ(heartbeat.demands[0].kind, SubscriptionTargetKind::Topic);
   EXPECT_EQ(heartbeat.demands[0].name, expandHeartbeatTopicName("/camera/front"));
-  EXPECT_EQ(heartbeat.demands[1].kind, SubscriptionTargetKind::OtherVideo);
+  EXPECT_EQ(heartbeat.demands[1].kind, SubscriptionTargetKind::ExternalVideo);
   EXPECT_EQ(heartbeat.demands[1].name, "/camera/front");
   EXPECT_EQ(heartbeat.demands[2].name, "front_camera");
   EXPECT_EQ(heartbeat.demands[3].name, "front_camera/");
@@ -359,7 +359,7 @@ TEST(SubscriptionPayloadsTest, SerializeSubscriptionStatusesSerializesSuccessOnl
   topic_data.interval_ms = 50;
 
   auto external_video = makeStatus(
-    SubscriptionTargetKind::OtherVideo,
+    SubscriptionTargetKind::ExternalVideo,
     "/sources/front",
     SubscriptionDeliveryKind::Video,
     "lkros.video.external.%2Fsources%2Ffront");
@@ -401,7 +401,7 @@ TEST(SubscriptionPayloadsTest, SerializeSubscriptionStatusesSerializesSuccessOnl
 TEST(SubscriptionPayloadsTest, SerializeSubscriptionStatusesSerializesAudioDelivery)
 {
   auto external_audio = makeStatus(
-    SubscriptionTargetKind::OtherAudio,
+    SubscriptionTargetKind::ExternalAudio,
     "/sources/cab_mic",
     SubscriptionDeliveryKind::Audio,
     "lkros.audio.external.%2Fsources%2Fcab_mic");
@@ -453,7 +453,7 @@ TEST(SubscriptionPayloadsTest, SerializeSubscriptionStatusesSerializesErrorOnlyB
           SubscriptionErrorReason::Forbidden,
           "ROS topic '/battery_state' not permitted.")},
         SubscriptionStatusEntry{makeErrorStatus(
-          SubscriptionTargetKind::OtherVideo,
+          SubscriptionTargetKind::ExternalVideo,
           "/sources/missing",
           SubscriptionErrorReason::NotFound,
           "Unknown external video source '/sources/missing'.")},
@@ -539,7 +539,7 @@ TEST(SubscriptionPayloadsTest, SerializeSubscriptionStatusesSerializesExpiryWith
 TEST(SubscriptionPayloadsTest, SerializeSubscriptionStatusesSerializesMixedStatuses)
 {
   auto external_video = makeStatus(
-    SubscriptionTargetKind::OtherVideo,
+    SubscriptionTargetKind::ExternalVideo,
     "/sources/front",
     SubscriptionDeliveryKind::Video,
     "lkros.video.external.%2Fsources%2Ffront");
