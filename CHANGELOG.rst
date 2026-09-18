@@ -8,6 +8,9 @@ Changelog for package livekit_ros2_bridge
 
 0.2.0 (Unreleased)
 ------------------
+* Add the `lkros.capability` RPC, a bridge-introspection method that answers ``{"features": {}}`` to any
+  room participant without caller identity or access-policy checks, so clients can discover optional
+  bridge features.
 * Bump the LiveKit C++ SDK to 1.6.0, which adds a libcurl runtime dependency. Publish options
   now use the new `frame_metadata_features` field in place of `packet_trailer_features`.
 

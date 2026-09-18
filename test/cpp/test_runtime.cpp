@@ -70,6 +70,7 @@ const std::vector<std::string> & expectedRpcMethods()
     protocol::kListServicesMethod,
     protocol::kListTopicsMethod,
     protocol::kTopicEchoOnceMethod,
+    protocol::kCapabilityMethod,
   };
   return methods;
 }

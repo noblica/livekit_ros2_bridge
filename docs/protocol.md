@@ -85,6 +85,7 @@ Every surface in this specification runs over LiveKit. Requests and control flow
 | RPC | `ros2.service.list` | client ↔ bridge | List authorized ROS services |
 | RPC | `ros2.topic.list` | client ↔ bridge | List authorized ROS topics |
 | RPC | `ros2.topic.echo.once` | client ↔ bridge | Request a topic's cached last message |
+| RPC | `lkros.capability` | client ↔ bridge | Discover optional bridge features |
 
 Data-track and video-track names are not fixed strings. Clients learn them from an active [`lkros.status`](#data-packet-topic-lkrosstatus) entry and subscribe to the LiveKit publication with that name.
 
@@ -728,6 +729,46 @@ Clients that omit `interface_type` should be prepared for ambiguity to fail the 
 - `result` MUST be `"sent"` when a cached value existed and was handed to the byte-stream sender, targeted to the calling identity.
 - `result` MUST be `"none"` in every other deliverable case: no active subscription for the topic, an empty cache, a volatile topic, a topic delivered as video, or a synchronous dispatch failure. No byte stream is sent in these cases.
 - The bridge intentionally does not distinguish "no value yet" from "never has a value". Clients SHOULD retry a few times on `"none"` (the last message may still be in flight to the bridge) and then stop.
+
+## RPC: `lkros.capability`
+
+### Purpose
+
+`lkros.capability` discloses which optional bridge features are available. It lets a client distinguish a bridge that predates capability discovery (which answers the RPC unknown-method error) from a bridge that knows the RPC and has no features configured (which answers an empty `features` object).
+
+### Example Request
+
+The request payload is accepted and ignored; any JSON value (or none) is valid.
+
+### Example Response
+
+```json
+{
+  "features": {}
+}
+```
+
+### Request Requirements
+
+- The request payload MUST be accepted regardless of content; the bridge MUST ignore it.
+- Calls MUST NOT require `caller_identity`; anonymous calls MUST be answered.
+- Access policy MUST NOT apply: this RPC MUST be answerable regardless of `access.rules.*`.
+
+### Response Requirements
+
+- A successful response MUST be a JSON object with a `features` field.
+- `features` MUST be a JSON object keyed by feature name with boolean values: `true` advertises the feature, `false` means present-but-unavailable.
+- The response MUST NOT contain version or protocol-version fields.
+- A feature MUST be advertised if and only if its availability is configuration-derived; a feature absent from `features` means "not available on this bridge".
+- The schema is additive: new feature names MAY appear in later versions, and clients MUST ignore unknown feature names.
+
+### Notes
+
+Any LiveKit room participant MAY call this method at any time — typically on room join — without a heartbeat flow or subscription state. On bridges that predate this RPC, the LiveKit SDK answers with its built-in unsupported-method error (`1400`); clients MUST treat that error as "no feature discovery", which is distinct from the empty `features` object a current bridge returns.
+
+The response is visible to every room participant and contains no ROS resource names, so it discloses nothing about the ROS graph.
+
+This method is purely additive and requires no protocol-version bump: old clients never call it, and new clients tolerate old bridges via the unknown-method error.
 
 ## Informative: `ros2` CLI Mapping
 

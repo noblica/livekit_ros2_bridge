@@ -46,12 +46,13 @@ namespace
 
 const auto kLogger = rclcpp::get_logger("livekit_ros2_bridge.rpc_router");
 
-constexpr std::array<const char *, 5> kMethods{
+constexpr std::array<const char *, 6> kMethods{
   protocol::kCallServiceMethod,
   protocol::kShowInterfaceMethod,
   protocol::kListServicesMethod,
   protocol::kListTopicsMethod,
   protocol::kTopicEchoOnceMethod,
+  protocol::kCapabilityMethod,
 };
 
 [[noreturn]] void throwRpcError(
@@ -196,6 +197,10 @@ bool RpcRouter::registerRpcs(RoomConnection & connection)
                      protocol::kTopicEchoOnceMethod,
                      [this](const livekit::RpcInvocationData & invocation) { return requestEchoOnce(invocation); }) &&
                    all_registered;
+  all_registered = connection.registerRpc(
+                     protocol::kCapabilityMethod,
+                     [this](const livekit::RpcInvocationData & invocation) { return capability(invocation); }) &&
+                   all_registered;
 
   return all_registered;
 }
@@ -317,6 +322,12 @@ std::optional<std::string> RpcRouter::requestEchoOnce(const livekit::RpcInvocati
       });
     return protocol::echo_once::serialize(future.get());
   });
+}
+
+std::optional<std::string> RpcRouter::capability(const livekit::RpcInvocationData & invocation)
+{
+  (void)invocation;
+  return R"({"features":{}})";
 }
 
 }  // namespace livekit_ros2_bridge
