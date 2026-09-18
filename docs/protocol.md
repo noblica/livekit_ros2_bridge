@@ -738,7 +738,11 @@ Clients that omit `interface_type` should be prepared for ambiguity to fail the 
 
 ### Example Request
 
-The request payload is accepted and ignored; any JSON value (or none) is valid.
+Any payload is valid. The bridge accepts and ignores it:
+
+```json
+{}
+```
 
 ### Example Response
 
@@ -757,7 +761,7 @@ The request payload is accepted and ignored; any JSON value (or none) is valid.
 ### Response Requirements
 
 - A successful response MUST be a JSON object with a `features` field.
-- `features` MUST be a JSON object keyed by feature name with boolean values: `true` advertises the feature, `false` means present-but-unavailable.
+- `features` MUST be a JSON object keyed by feature name with boolean values. Presence in the object advertises the feature; a feature that is not available on the bridge MUST be absent from the object rather than advertised with `false`.
 - The response MUST NOT contain version or protocol-version fields.
 - A feature MUST be advertised if and only if its availability is configuration-derived; a feature absent from `features` means "not available on this bridge".
 - The schema is additive: new feature names MAY appear in later versions, and clients MUST ignore unknown feature names.

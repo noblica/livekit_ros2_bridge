@@ -253,24 +253,22 @@ TEST_F(RpcRouterTest, RegisteredRpcHandlersRequireCallerIdentityBeforeParsing)
   expectUnauthorized(protocol::kTopicEchoOnceMethod);
 }
 
-TEST_F(RpcRouterTest, CapabilityRpcReturnsEmptyFeatureSetWithoutIdentityOrPayloadValidation)
+TEST_F(RpcRouterTest, CapabilityRpcReturnsExactBodyWithoutIdentityOrPayloadValidation)
 {
   RpcRouterHarness harness;
 
   const auto response = harness.invokeRpc(protocol::kCapabilityMethod, makeRpcInvocation("", R"({not-json})"));
   ASSERT_TRUE(response.has_value());
-  const auto body = nlohmann::json::parse(*response);
-  EXPECT_EQ(body, nlohmann::json::object({{"features", nlohmann::json::object()}}));
+  EXPECT_EQ(*response, R"({"features":{}})");
 }
 
-TEST_F(RpcRouterTest, CapabilityRpcIgnoresJunkPayloadAndAnswersWithoutSubscriptionState)
+TEST_F(RpcRouterTest, CapabilityRpcIgnoresJunkPayloadAndAnswersUnderDefaultDenyPolicy)
 {
-  RpcRouterHarness harness(makeServicePolicy({"/some_service"}));
+  RpcRouterHarness harness(makeServicePolicy({}, {"*"}));
 
   const auto response = harness.invokeRpc(protocol::kCapabilityMethod, makeRpcInvocation("participant-1", R"("junk")"));
   ASSERT_TRUE(response.has_value());
-  const auto body = nlohmann::json::parse(*response);
-  EXPECT_EQ(body, nlohmann::json::object({{"features", nlohmann::json::object()}}));
+  EXPECT_EQ(*response, R"({"features":{}})");
   EXPECT_TRUE(harness.connection.state->sent_byte_streams.empty());
   EXPECT_TRUE(harness.connection.state->published_data_calls.empty());
 }
