@@ -52,9 +52,9 @@ struct OtherInput
 
 struct StreamSpec
 {
-  // Stable runtime key: "other_audio:<trimmed source name>".
+  // Stable runtime key: "external_audio:<trimmed source name>".
   std::string stream_key;
-  // LiveKit track name: reversible percent-encoded other-audio suffix.
+  // LiveKit track name: reversible percent-encoded external-audio suffix.
   std::string track_name;
 
   OtherInput input;

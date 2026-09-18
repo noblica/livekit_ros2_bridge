@@ -54,8 +54,8 @@ TEST(AudioStreamSpecTest, ResolveOtherSourceSpecTrimsOtherSourceName)
   const auto spec = resolveOtherSourceSpec(config, "  cab_mic  ");
   const auto & input = spec.input;
 
-  EXPECT_EQ(spec.stream_key, "other_audio:cab_mic");
-  EXPECT_EQ(spec.track_name, "lkros.audio.other.cab_mic");
+  EXPECT_EQ(spec.stream_key, "external_audio:cab_mic");
+  EXPECT_EQ(spec.track_name, "lkros.audio.external.cab_mic");
   EXPECT_EQ(input.name, "cab_mic");
   EXPECT_EQ(input.source_fragment, "audiotestsrc is-live=true wave=sine");
   EXPECT_EQ(input.transform_fragment, "volume volume=0.5");
@@ -76,7 +76,7 @@ TEST(AudioStreamSpecTest, ResolveOtherSourceSpecPercentEncodesTrackNameSuffix)
 
   const auto spec = resolveOtherSourceSpec(config, "/sources/cab:mic%");
 
-  EXPECT_EQ(spec.track_name, "lkros.audio.other.%2Fsources%2Fcab%3Amic%25");
+  EXPECT_EQ(spec.track_name, "lkros.audio.external.%2Fsources%2Fcab%3Amic%25");
 }
 
 TEST(AudioStreamSpecTest, ResolveOtherSourceSpecRejectsInvalidNames)
@@ -85,8 +85,8 @@ TEST(AudioStreamSpecTest, ResolveOtherSourceSpecRejectsInvalidNames)
 
   expectThrowsWithMessage(
     [&]() { (void)resolveOtherSourceSpec(config, "sources/missing"); },
-    "Unknown other audio source 'sources/missing'.");
-  expectThrowsWithMessage([&]() { (void)resolveOtherSourceSpec(config, " \t\n "); }, "Invalid other audio name.");
+    "Unknown external audio source 'sources/missing'.");
+  expectThrowsWithMessage([&]() { (void)resolveOtherSourceSpec(config, " \t\n "); }, "Invalid external audio name.");
 }
 
 }  // namespace

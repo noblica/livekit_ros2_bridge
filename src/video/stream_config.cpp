@@ -184,11 +184,11 @@ StreamConfig loadConfig(const Params & params)
     config.ros_topic_rules.push_back(std::move(rule));
   }
 
-  for (const auto & id : params.video_other_ids) {
+  for (const auto & id : params.video_external_ids) {
     const auto & entry = requireUniqueEntry(
-      seen_source_ids, id, params.video.other.video_other_ids_map, "other video id", "other video source");
+      seen_source_ids, id, params.video.external.video_external_ids_map, "external video id", "external video source");
 
-    const std::string source_context = "other video source '" + id + "'";
+    const std::string source_context = "external video source '" + id + "'";
     const std::string source_fragment = trim(entry.source);
     if (source_fragment.empty()) {
       throw std::runtime_error(source_context + " requires a non-empty source");
@@ -202,7 +202,7 @@ StreamConfig loadConfig(const Params & params)
       throw std::runtime_error(source_context + " must trim to a non-empty name");
     }
     if (!seen_source_names.emplace(name).second) {
-      throw std::runtime_error("duplicate other video source name '" + name + "'");
+      throw std::runtime_error("duplicate external video source name '" + name + "'");
     }
 
     OtherSource source;

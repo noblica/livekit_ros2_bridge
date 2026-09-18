@@ -109,11 +109,11 @@ StreamConfig loadConfig(const Params & params)
   std::unordered_set<std::string> seen_source_names;
   constexpr utils::EndpointLayout kOtherSourceLayout = utils::makeOtherSourceLayout(kBridgeAppSinkName);
 
-  for (const auto & id : params.audio_other_ids) {
+  for (const auto & id : params.audio_external_ids) {
     const auto & entry = requireUniqueEntry(
-      seen_source_ids, id, params.audio.other.audio_other_ids_map, "other audio id", "other audio source");
+      seen_source_ids, id, params.audio.external.audio_external_ids_map, "external audio id", "external audio source");
 
-    const std::string source_context = "other audio source '" + id + "'";
+    const std::string source_context = "external audio source '" + id + "'";
     const std::string source_fragment = trim(entry.source);
     if (source_fragment.empty()) {
       throw std::runtime_error(source_context + " requires a non-empty source");
@@ -127,7 +127,7 @@ StreamConfig loadConfig(const Params & params)
       throw std::runtime_error(source_context + " must trim to a non-empty name");
     }
     if (!seen_source_names.emplace(name).second) {
-      throw std::runtime_error("duplicate other audio source name '" + name + "'");
+      throw std::runtime_error("duplicate external audio source name '" + name + "'");
     }
 
     OtherSource source;

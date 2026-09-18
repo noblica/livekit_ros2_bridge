@@ -66,9 +66,9 @@ const char * targetKindKeyPrefix(SubscriptionTargetKind kind)
     case SubscriptionTargetKind::Topic:
       return "topic";
     case SubscriptionTargetKind::OtherVideo:
-      return "other_video";
+      return "external_video";
     case SubscriptionTargetKind::OtherAudio:
-      return "other_audio";
+      return "external_audio";
   }
 
   throw std::invalid_argument("subscription target kind is invalid");
@@ -263,7 +263,7 @@ video::StreamSpec SubscriptionLeaseManager::resolveVideoSpec(
     case SubscriptionTargetKind::OtherVideo:
       return video::resolveOtherSourceSpec(videoStreamConfig(), name);
     case SubscriptionTargetKind::OtherAudio:
-      throw std::invalid_argument("other audio is not a video stream request");
+      throw std::invalid_argument("external audio is not a video stream request");
   }
 
   // All SubscriptionTargetKind enumerators are handled above; the switch cannot
@@ -279,7 +279,7 @@ audio::StreamSpec SubscriptionLeaseManager::resolveAudioSpec(
       return audio::resolveOtherSourceSpec(audioStreamConfig(), name);
     case SubscriptionTargetKind::Topic:
     case SubscriptionTargetKind::OtherVideo:
-      throw std::invalid_argument("only other audio requests resolve to audio streams");
+      throw std::invalid_argument("only external audio requests resolve to audio streams");
   }
 
   // All SubscriptionTargetKind enumerators are handled above; the switch cannot
@@ -338,7 +338,7 @@ void SubscriptionLeaseManager::appendDemandStatus(
   const SubscriptionDemand & demand,
   Clock::time_point expiry)
 {
-  // Bridge-owned `other_video` sources are config entries; subscribe ACLs apply to ROS topics.
+  // Bridge-owned `external_video` sources are config entries; subscribe ACLs apply to ROS topics.
   if (demand.kind == SubscriptionTargetKind::Topic && !access_policy_.allows(AccessOperation::Subscribe, demand.name)) {
     report.statuses.emplace_back(
       SubscriptionErrorStatus{

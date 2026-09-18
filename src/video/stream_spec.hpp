@@ -84,9 +84,9 @@ using StreamInput = std::variant<RosInput, OtherInput>;
 
 struct StreamSpec
 {
-  // Stable runtime key: "topic:<normalized topic>" or "other_video:<trimmed source name>".
+  // Stable runtime key: "topic:<normalized topic>" or "external_video:<trimmed source name>".
   std::string stream_key;
-  // LiveKit track name: legacy lossy ROS suffixes, reversible other-video suffixes.
+  // LiveKit track name: legacy lossy ROS suffixes, reversible external-video suffixes.
   std::string track_name;
 
   StreamInput input;

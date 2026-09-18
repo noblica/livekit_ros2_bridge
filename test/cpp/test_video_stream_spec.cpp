@@ -242,8 +242,8 @@ TEST(StreamSpecTest, ResolveOtherSourceSpecTrimsOtherSourceName)
   const auto spec = resolveOtherSourceSpec(config, "  front_camera  ");
   const auto & input = requireOtherInput(spec);
 
-  EXPECT_EQ(spec.stream_key, "other_video:front_camera");
-  EXPECT_EQ(spec.track_name, "lkros.video.other.front_camera");
+  EXPECT_EQ(spec.stream_key, "external_video:front_camera");
+  EXPECT_EQ(spec.track_name, "lkros.video.external.front_camera");
   EXPECT_EQ(input.name, "front_camera");
   EXPECT_EQ(input.source_fragment, "videotestsrc is-live=true pattern=black");
   EXPECT_EQ(input.transform_fragment, "videobalance saturation=0.0");
@@ -261,7 +261,7 @@ TEST(StreamSpecTest, ResolveOtherSourceSpecPercentEncodesTrackNameSuffix)
 
   const auto spec = resolveOtherSourceSpec(config, "/sources/front:rgb%");
 
-  EXPECT_EQ(spec.track_name, "lkros.video.other.%2Fsources%2Ffront%3Argb%25");
+  EXPECT_EQ(spec.track_name, "lkros.video.external.%2Fsources%2Ffront%3Argb%25");
 }
 
 TEST(StreamSpecTest, ResolveOtherSourceSpecRejectsInvalidNames)
@@ -270,9 +270,9 @@ TEST(StreamSpecTest, ResolveOtherSourceSpecRejectsInvalidNames)
 
   expectThrowsWithMessage<std::invalid_argument>(
     [&]() { (void)resolveOtherSourceSpec(config, "sources/missing"); },
-    "Unknown other video source 'sources/missing'.");
+    "Unknown external video source 'sources/missing'.");
   expectThrowsWithMessage<std::invalid_argument>(
-    [&]() { (void)resolveOtherSourceSpec(config, " \t\n "); }, "Invalid other video name.");
+    [&]() { (void)resolveOtherSourceSpec(config, " \t\n "); }, "Invalid external video name.");
 }
 
 }  // namespace

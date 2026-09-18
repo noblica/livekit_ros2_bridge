@@ -46,8 +46,8 @@ const test_support::ScopedLiveKitInit kLiveKitInit;
 StreamSpec makeOtherSpec()
 {
   StreamSpec spec;
-  spec.stream_key = "other_video:test";
-  spec.track_name = "lkros.video.other.test";
+  spec.stream_key = "external_video:test";
+  spec.track_name = "lkros.video.external.test";
   spec.input = OtherInput{"test", "", ""};
   return spec;
 }

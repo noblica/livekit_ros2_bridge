@@ -43,8 +43,8 @@ const test_support::ScopedLiveKitInit kLiveKitInit;
 StreamSpec makeOtherSpec()
 {
   StreamSpec spec;
-  spec.stream_key = "other_audio:test";
-  spec.track_name = "lkros.audio.other.test";
+  spec.stream_key = "external_audio:test";
+  spec.track_name = "lkros.audio.external.test";
   spec.input = OtherInput{"test", "", ""};
   return spec;
 }

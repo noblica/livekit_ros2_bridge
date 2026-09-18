@@ -230,9 +230,9 @@ std::vector<std::uint8_t> heartbeatPayloadBytes(const SubscriptionHeartbeat & he
   for (const auto & demand : heartbeat.demands) {
     const char * kind = "topic";
     if (demand.kind == SubscriptionTargetKind::OtherVideo) {
-      kind = "other_video";
+      kind = "external_video";
     } else if (demand.kind == SubscriptionTargetKind::OtherAudio) {
-      kind = "other_audio";
+      kind = "external_audio";
     }
     nlohmann::json entry = {
       {"kind", kind},
@@ -1085,7 +1085,7 @@ TEST_F(SubscriptionLeaseManagerHeartbeatTest, OtherVideoBypassesRosAccessPolicyA
   sendHeartbeat(manager, *state_, "requester-1", makeHeartbeat({makeOtherVideoDemand("/sources/front")}));
 
   const auto status = extractPublishedStatusEntry(*state_, "requester-1");
-  expectStatusEntry(status, "other_video", "/sources/front", "active");
+  expectStatusEntry(status, "external_video", "/sources/front", "active");
   const auto & delivery = status["delivery"];
   EXPECT_EQ(delivery["kind"], "video");
   EXPECT_FALSE(delivery["track_name"].get<std::string>().empty());
@@ -1102,10 +1102,10 @@ TEST_F(SubscriptionLeaseManagerHeartbeatTest, MissingOtherVideoReturnsErrorOnSou
   expectPublishedError(
     *state_,
     "requester-1",
-    "other_video",
+    "external_video",
     "/sources/missing",
     "not_found",
-    "Unknown other video source '/sources/missing'.");
+    "Unknown external video source '/sources/missing'.");
 }
 
 TEST_F(SubscriptionLeaseManagerHeartbeatTest, OtherAudioBypassesRosAccessPolicyAndReturnsAudioStatus)
@@ -1118,10 +1118,10 @@ TEST_F(SubscriptionLeaseManagerHeartbeatTest, OtherAudioBypassesRosAccessPolicyA
   sendHeartbeat(manager, *state_, "requester-1", makeHeartbeat({makeOtherAudioDemand("/sources/cab_mic")}));
 
   const auto status = extractPublishedStatusEntry(*state_, "requester-1");
-  expectStatusEntry(status, "other_audio", "/sources/cab_mic", "active");
+  expectStatusEntry(status, "external_audio", "/sources/cab_mic", "active");
   const auto & delivery = status["delivery"];
   EXPECT_EQ(delivery["kind"], "audio");
-  EXPECT_EQ(delivery["track_name"], "lkros.audio.other.%2Fsources%2Fcab_mic");
+  EXPECT_EQ(delivery["track_name"], "lkros.audio.external.%2Fsources%2Fcab_mic");
 }
 
 TEST_F(SubscriptionLeaseManagerHeartbeatTest, MissingOtherAudioReturnsErrorOnSourceIdField)
@@ -1135,10 +1135,10 @@ TEST_F(SubscriptionLeaseManagerHeartbeatTest, MissingOtherAudioReturnsErrorOnSou
   expectPublishedError(
     *state_,
     "requester-1",
-    "other_audio",
+    "external_audio",
     "/sources/missing",
     "not_found",
-    "Unknown other audio source '/sources/missing'.");
+    "Unknown external audio source '/sources/missing'.");
 }
 
 TEST(SubscriptionLeaseManagerTest, HealthyAudioFlowLeavesDegradedReasonAbsent)
@@ -1158,8 +1158,8 @@ TEST(SubscriptionLeaseManagerTest, HealthyAudioFlowLeavesDegradedReasonAbsent)
   const auto second = sendHeartbeatAndExtractStatus(
     registry, *session.state, "alice", makeHeartbeat({makeOtherAudioDemand("/sources/cab_mic")}));
 
-  expectStatusEntry(first, "other_audio", "/sources/cab_mic", "active");
-  expectStatusEntry(second, "other_audio", "/sources/cab_mic", "active");
+  expectStatusEntry(first, "external_audio", "/sources/cab_mic", "active");
+  expectStatusEntry(second, "external_audio", "/sources/cab_mic", "active");
   EXPECT_FALSE(first.contains("degraded_reason"));
   EXPECT_FALSE(second.contains("degraded_reason"));
 }

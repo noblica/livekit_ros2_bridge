@@ -32,9 +32,9 @@ namespace
 {
 
 constexpr char kRosTopicKeyPrefix[] = "topic";
-constexpr char kOtherVideoKeyPrefix[] = "other_video";
+constexpr char kExternalVideoKeyPrefix[] = "external_video";
 constexpr char kRosTopicTrackPrefix[] = "lkros.video.";
-constexpr char kOtherTrackPrefix[] = "lkros.video.other.";
+constexpr char kExternalTrackPrefix[] = "lkros.video.external.";
 const auto kLogger = rclcpp::get_logger("video_stream_spec");
 
 // ROS-topic track names retain the lossy legacy mapping; stream_key carries exact identity.
@@ -105,7 +105,7 @@ const OtherInput & requireOtherInput(const StreamSpec & spec)
   if (const auto * input = std::get_if<OtherInput>(&spec.input); input != nullptr) {
     return *input;
   }
-  throw std::logic_error("Video stream spec does not contain an other-video input.");
+  throw std::logic_error("Video stream spec does not contain an external-video input.");
 }
 
 StreamSpec resolveRosTopicSpec(
@@ -145,19 +145,19 @@ StreamSpec resolveOtherSourceSpec(const StreamConfig & config, const std::string
 {
   const std::string name = trim(source_name);
   if (name.empty()) {
-    throw std::invalid_argument("Invalid other video name.");
+    throw std::invalid_argument("Invalid external video name.");
   }
 
   const auto it = config.other_sources.find(name);
   if (it == config.other_sources.end()) {
-    throw std::invalid_argument("Unknown other video source '" + name + "'.");
+    throw std::invalid_argument("Unknown external video source '" + name + "'.");
   }
 
   const auto & source = it->second;
 
   StreamSpec spec;
-  spec.stream_key = std::string{kOtherVideoKeyPrefix} + ":" + name;
-  spec.track_name = std::string{kOtherTrackPrefix} + encodeOtherTrackSuffix(name);
+  spec.stream_key = std::string{kExternalVideoKeyPrefix} + ":" + name;
+  spec.track_name = std::string{kExternalTrackPrefix} + encodeOtherTrackSuffix(name);
   spec.input = OtherInput{
     name,
     source.source_fragment,
