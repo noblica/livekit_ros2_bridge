@@ -453,6 +453,18 @@ TEST_F(SubscriptionLeaseManagerHeartbeatTest, UnsupportedKindEntryIsSkippedAndRe
   (void)publisher;
 }
 
+TEST_F(SubscriptionLeaseManagerHeartbeatTest, UnsupportedKindOnlyHeartbeatPublishesNoStatus)
+{
+  auto manager = makeManager(access_policy_);
+  const auto payload =
+    payloadBytes(R"({"session_id":"session-1","subscriptions":[{"kind":"service","name":"/battery"}]})");
+
+  EXPECT_NO_THROW(manager.handleHeartbeatPayload("requester-1", payload));
+
+  EXPECT_EQ(state_->publish_data_call_count, 0);
+  EXPECT_TRUE(state_->published_data_track_names.empty());
+}
+
 TEST(SubscriptionLeaseManagerTest, HeartbeatReturnsDeterministicDataTrackForNonVideoTopics)
 {
   ScopedRclcppInit init;

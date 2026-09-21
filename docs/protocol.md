@@ -225,8 +225,8 @@ Two clients subscribing to the same [normalized](#versioning-and-terminology) no
 
 - `subscriptions` MUST be present and MUST be an array.
 - Each entry MUST be an object with string `kind` and `name` fields.
-- `kind` MUST be `topic`, `other_video`, or `other_audio`; an unrecognized `kind` MUST cause the bridge to skip that entry, not reject the heartbeat. Validation of the remaining entries is unchanged.
-- An unrecognized-kind entry is skipped in its entirety; its remaining fields are neither validated nor reported. A missing, non-string, or blank `kind` is a malformed entry and still rejects the heartbeat.
+- `kind` MUST be `topic`, `other_video`, or `other_audio`. When an entry's `kind` is not one of these values, the bridge MUST skip that entry rather than reject the heartbeat; validation of the remaining entries is unchanged.
+- A skipped entry is skipped in its entirety; its remaining fields are neither validated nor reported. A missing, non-string, or blank `kind` is a malformed entry and still rejects the heartbeat.
 - `topic` names MUST [normalize](#versioning-and-terminology) to non-empty [ROS resource names](#versioning-and-terminology).
 - `other_video` names MUST address configured entries from `video.other.<id>`.
 - `other_audio` names MUST address configured entries from `audio.other.<id>`.
