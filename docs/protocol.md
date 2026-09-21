@@ -50,7 +50,7 @@ Clients MUST treat these as implementation details and MUST NOT rely on any of t
 
 ### Version
 
-The [`lkros.status`](#data-packet-topic-lkrosstatus) packet carries a protocol version field `v`, currently `2`.
+The [`lkros.status`](#data-packet-topic-lkrosstatus) packet and the [`lkros.capability`](#rpc-lkroscapability) response carry a protocol version field `v`, currently `2`.
 
 ### Terms
 
@@ -85,6 +85,7 @@ Every surface in this specification runs over LiveKit. Requests and control flow
 | RPC | `ros2.service.list` | client ↔ bridge | List authorized ROS services |
 | RPC | `ros2.topic.list` | client ↔ bridge | List authorized ROS topics |
 | RPC | `ros2.topic.echo.once` | client ↔ bridge | Request a topic's cached last message |
+| RPC | `lkros.capability` | client ↔ bridge | Discover optional bridge features |
 
 Data-track and video-track names are not fixed strings. Clients learn them from an active [`lkros.status`](#data-packet-topic-lkrosstatus) entry and subscribe to the LiveKit publication with that name.
 
@@ -729,6 +730,50 @@ Clients that omit `interface_type` should be prepared for ambiguity to fail the 
 - `result` MUST be `"none"` in every other deliverable case: no active subscription for the topic, an empty cache, a volatile topic, a topic delivered as video, or a synchronous dispatch failure. No byte stream is sent in these cases.
 - The bridge intentionally does not distinguish "no value yet" from "never has a value". Clients SHOULD retry a few times on `"none"` (the last message may still be in flight to the bridge) and then stop.
 
+## RPC: `lkros.capability`
+
+### Purpose
+
+`lkros.capability` discloses which optional bridge features are available. It lets a client distinguish a bridge that predates capability discovery (which answers the RPC unknown-method error) from a bridge that knows the RPC and has no features configured (which answers an empty `features` object).
+
+### Example Request
+
+Any payload is valid. The bridge accepts and ignores it:
+
+```json
+{}
+```
+
+### Example Response
+
+```json
+{
+  "v": 2,
+  "features": {}
+}
+```
+
+### Request Requirements
+
+- The request payload MUST be accepted regardless of content; the bridge MUST ignore it.
+- Calls MUST NOT require `caller_identity`; anonymous calls MUST be answered.
+- Access policy MUST NOT apply: this RPC MUST be answerable regardless of `access.rules.*`.
+
+### Response Requirements
+
+- A successful response MUST be a JSON object with a `features` field.
+- `v` MUST be the protocol version, currently `2`.
+- `features` MUST be a JSON object keyed by feature name with boolean values, all of which are `true` in this protocol version. Presence in the object advertises the feature; a feature that is not available on the bridge MUST be absent from the object rather than advertised with `false`.
+- A feature MUST be advertised if and only if its availability is configuration-derived; a feature absent from `features` means "not available on this bridge".
+- The schema is additive: new feature names MAY appear in later versions, and clients MUST ignore unknown feature names.
+- A bridge that predates this RPC answers with the LiveKit SDK's built-in unsupported-method error (`1400`). A client MUST treat that error as "this bridge does not support capability discovery" and MUST NOT interpret it as an empty feature set; the error and the empty `features` object are the two states of the discovery contract.
+
+### Notes
+
+Any LiveKit room participant MAY call this method at any time — typically on room join — without a heartbeat flow or subscription state. On bridges that predate this RPC, the LiveKit SDK answers with its built-in unsupported-method error (`1400`), the error side of the two-state contract above.
+
+The response is delivered unicast to the caller, who may be any room participant, and contains no ROS resource names, so it discloses nothing about the ROS graph.
+
 ## Informative: `ros2` CLI Mapping
 
 Rough mapping from familiar `ros2` commands to the bridge. Request-response work uses RPCs, one-shot topic writes use data-packet topics, and streams arrive on data or video tracks. `lkros.heartbeat` and `lkros.status` are bridge control messages, not ROS messages.
@@ -752,13 +797,14 @@ Rough mapping from familiar `ros2` commands to the bridge. Request-response work
 Most integrations follow this order:
 
 1. Join the same LiveKit room as the bridge.
-2. Call `ros2.topic.list` and `ros2.service.list` to discover the resources your policy allows.
-3. Call `ros2.interface.show` for the message and service types you need to encode or decode.
-4. Use `ros2.service.call` for request-response operations.
-5. Send `ros2.topic.pub` packets for small allowed topic writes.
-6. Send `lkros.heartbeat` on a regular cadence to request topic or video subscriptions.
-7. Read `lkros.status` to learn whether each requested subscription is active, forbidden, or not found.
-8. Subscribe to the announced LiveKit data track or video publication.
+2. Call `lkros.capability` to learn which optional bridge features are available (an unsupported-method error means the bridge predates feature discovery).
+3. Call `ros2.topic.list` and `ros2.service.list` to discover the resources your policy allows.
+4. Call `ros2.interface.show` for the message and service types you need to encode or decode.
+5. Use `ros2.service.call` for request-response operations.
+6. Send `ros2.topic.pub` packets for small allowed topic writes.
+7. Send `lkros.heartbeat` on a regular cadence to request topic or video subscriptions.
+8. Read `lkros.status` to learn whether each requested subscription is active, forbidden, or not found.
+9. Subscribe to the announced LiveKit data track or video publication.
 
 For a first integration, start with one service-call path or one topic-subscription path. Once that works, add more interface types, video, and broader policy rules.
 

@@ -28,6 +28,7 @@ inline constexpr char kShowInterfaceMethod[] = "ros2.interface.show";
 inline constexpr char kListServicesMethod[] = "ros2.service.list";
 inline constexpr char kListTopicsMethod[] = "ros2.topic.list";
 inline constexpr char kTopicEchoOnceMethod[] = "ros2.topic.echo.once";
+inline constexpr char kCapabilityMethod[] = "lkros.capability";
 
 // Fixed byte-stream topic for echo-once deliveries. One handler per client; the requested
 // ROS topic rides in the stream's `name` field, so no per-topic stream names are derived.

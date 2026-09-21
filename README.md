@@ -28,7 +28,9 @@ The bridge uses three kinds of LiveKit surfaces:
 | RPC | `ros2.service.call` | Request-Response | Call an authorized ROS service |
 | RPC | `ros2.service.list` | Request-Response | List authorized ROS services |
 | RPC | `ros2.topic.list` | Request-Response | List authorized ROS topics |
+| RPC | `ros2.topic.echo.once` | Request-Response | Pull the cached last message of a `transient_local` topic |
 | RPC | `ros2.interface.show` | Request-Response | Fetch ROS interface definitions |
+| RPC | `lkros.capability` | Discovery | Discover optional bridge features |
 
 The bridge has two delivery modes:
 
@@ -103,7 +105,8 @@ Supported today:
 - video subscriptions
 - small ROS topic publications into ROS 2
 - other video sources
-- opt-in replay of a transient_local topic's last message for late-joining clients
+- opt-in replay of a `transient_local` topic's last message for late-joining clients
+- feature discovery, so clients can learn which optional bridge features are available
 
 Not supported today:
 

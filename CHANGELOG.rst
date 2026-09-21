@@ -2,6 +2,11 @@
 Changelog for package livekit_ros2_bridge
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+0.3.1 (Unreleased)
+------------------
+* Add the `lkros.capability` RPC for bridge feature discovery, answerable by any room participant
+  without caller identity or access-policy checks.
+
 0.3.0 (Unreleased)
 ------------------
 * Add configured non-ROS audio sources as mono LiveKit tracks.

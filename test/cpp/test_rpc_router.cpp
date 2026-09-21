@@ -239,6 +239,8 @@ TEST_F(RpcRouterTest, RegisteredRpcHandlersRequireCallerIdentityBeforeParsing)
 {
   RpcRouterHarness harness;
 
+  // Split rule: ROS-proxy RPCs (ros2.*) require caller identity; bridge-introspection RPCs
+  // (lkros.capability) do not, so they are deliberately excluded from this coverage.
   const auto expectUnauthorized = [&](const std::string & method) {
     expectRpcError(
       [&]() { harness.invokeRpc(method, makeRpcInvocation("", R"({not-json})")); }, protocol::kUnauthorizedRpcCode);
@@ -249,6 +251,35 @@ TEST_F(RpcRouterTest, RegisteredRpcHandlersRequireCallerIdentityBeforeParsing)
   expectUnauthorized(protocol::kListServicesMethod);
   expectUnauthorized(protocol::kListTopicsMethod);
   expectUnauthorized(protocol::kTopicEchoOnceMethod);
+}
+
+void expectCapabilityBody(const std::optional<std::string> & response)
+{
+  ASSERT_TRUE(response.has_value());
+  const auto parsed = nlohmann::json::parse(*response);
+  const nlohmann::json expected = {
+    {"features", nlohmann::json::object()},
+    {"v", protocol::kProtocolVersion},
+  };
+  ASSERT_EQ(parsed, expected);
+}
+
+TEST_F(RpcRouterTest, CapabilityRpcReturnsExactBodyWithoutIdentityOrPayloadValidation)
+{
+  RpcRouterHarness harness;
+
+  const auto response = harness.invokeRpc(protocol::kCapabilityMethod, makeRpcInvocation("", R"({not-json})"));
+  expectCapabilityBody(response);
+}
+
+TEST_F(RpcRouterTest, CapabilityRpcIgnoresJunkPayloadAndAnswersUnderDefaultDenyPolicy)
+{
+  RpcRouterHarness harness(makeServicePolicy({}, {"*"}));
+
+  const auto response = harness.invokeRpc(protocol::kCapabilityMethod, makeRpcInvocation("participant-1", R"("junk")"));
+  expectCapabilityBody(response);
+  EXPECT_TRUE(harness.connection.state->sent_byte_streams.empty());
+  EXPECT_TRUE(harness.connection.state->published_data_calls.empty());
 }
 
 TEST_F(RpcRouterTest, ServiceCallRpcMapsInvalidPayloadToInvalidRequest)
@@ -343,6 +374,7 @@ TEST_F(RpcRouterTest, RegisterRpcsIsBestEffortAndUnregistersAllEntrypoints)
     protocol::kListServicesMethod,
     protocol::kListTopicsMethod,
     protocol::kTopicEchoOnceMethod,
+    protocol::kCapabilityMethod,
   };
 
   {
@@ -355,6 +387,7 @@ TEST_F(RpcRouterTest, RegisterRpcsIsBestEffortAndUnregistersAllEntrypoints)
     EXPECT_EQ(connection.state->rpc_handlers.count(protocol::kListServicesMethod), 0U);
     EXPECT_EQ(connection.state->rpc_handlers.count(protocol::kListTopicsMethod), 1U);
     EXPECT_EQ(connection.state->rpc_handlers.count(protocol::kTopicEchoOnceMethod), 1U);
+    EXPECT_EQ(connection.state->rpc_handlers.count(protocol::kCapabilityMethod), 1U);
   }
 
   EXPECT_TRUE(connection.state->rpc_handlers.empty());
