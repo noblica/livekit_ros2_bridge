@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "livekit/rpc_error.h"
+#include "nlohmann/json.hpp"
 #include "protocol/constants.hpp"
 #include "protocol/echo_once_json.hpp"
 #include "protocol/interfaces_json.hpp"
@@ -327,7 +328,11 @@ std::optional<std::string> RpcRouter::requestEchoOnce(const livekit::RpcInvocati
 std::optional<std::string> RpcRouter::capability(const livekit::RpcInvocationData & invocation)
 {
   (void)invocation;
-  return R"({"features":{}})";
+  const nlohmann::json response = {
+    {"features", nlohmann::json::object()},
+    {"v", protocol::kProtocolVersion},
+  };
+  return response.dump();
 }
 
 }  // namespace livekit_ros2_bridge

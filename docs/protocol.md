@@ -50,7 +50,7 @@ Clients MUST treat these as implementation details and MUST NOT rely on any of t
 
 ### Version
 
-The [`lkros.status`](#data-packet-topic-lkrosstatus) packet carries a protocol version field `v`, currently `2`.
+The [`lkros.status`](#data-packet-topic-lkrosstatus) packet and the [`lkros.capability`](#rpc-lkroscapability) response carry a protocol version field `v`, currently `2`.
 
 ### Terms
 
@@ -748,6 +748,7 @@ Any payload is valid. The bridge accepts and ignores it:
 
 ```json
 {
+  "v": 2,
   "features": {}
 }
 ```
@@ -761,8 +762,8 @@ Any payload is valid. The bridge accepts and ignores it:
 ### Response Requirements
 
 - A successful response MUST be a JSON object with a `features` field.
+- `v` MUST be the protocol version, currently `2`.
 - `features` MUST be a JSON object keyed by feature name with boolean values, all of which are `true` in this protocol version. Presence in the object advertises the feature; a feature that is not available on the bridge MUST be absent from the object rather than advertised with `false`.
-- The response MUST NOT contain version or protocol-version fields.
 - A feature MUST be advertised if and only if its availability is configuration-derived; a feature absent from `features` means "not available on this bridge".
 - The schema is additive: new feature names MAY appear in later versions, and clients MUST ignore unknown feature names.
 - A bridge that predates this RPC answers with the LiveKit SDK's built-in unsupported-method error (`1400`). A client MUST treat that error as "this bridge does not support capability discovery" and MUST NOT interpret it as an empty feature set; the error and the empty `features` object are the two states of the discovery contract.
@@ -772,8 +773,6 @@ Any payload is valid. The bridge accepts and ignores it:
 Any LiveKit room participant MAY call this method at any time — typically on room join — without a heartbeat flow or subscription state. On bridges that predate this RPC, the LiveKit SDK answers with its built-in unsupported-method error (`1400`), the error side of the two-state contract above.
 
 The response is delivered unicast to the caller, who may be any room participant, and contains no ROS resource names, so it discloses nothing about the ROS graph.
-
-This method is purely additive and requires no protocol-version bump: old clients never call it, and new clients tolerate old bridges via the unknown-method error.
 
 ## Informative: `ros2` CLI Mapping
 

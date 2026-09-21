@@ -253,10 +253,15 @@ TEST_F(RpcRouterTest, RegisteredRpcHandlersRequireCallerIdentityBeforeParsing)
   expectUnauthorized(protocol::kTopicEchoOnceMethod);
 }
 
-void expectEmptyCapabilityBody(const std::optional<std::string> & response)
+void expectCapabilityBody(const std::optional<std::string> & response)
 {
   ASSERT_TRUE(response.has_value());
-  EXPECT_EQ(*response, R"({"features":{}})");
+  const auto parsed = nlohmann::json::parse(*response);
+  const nlohmann::json expected = {
+    {"features", nlohmann::json::object()},
+    {"v", protocol::kProtocolVersion},
+  };
+  ASSERT_EQ(parsed, expected);
 }
 
 TEST_F(RpcRouterTest, CapabilityRpcReturnsExactBodyWithoutIdentityOrPayloadValidation)
@@ -264,7 +269,7 @@ TEST_F(RpcRouterTest, CapabilityRpcReturnsExactBodyWithoutIdentityOrPayloadValid
   RpcRouterHarness harness;
 
   const auto response = harness.invokeRpc(protocol::kCapabilityMethod, makeRpcInvocation("", R"({not-json})"));
-  expectEmptyCapabilityBody(response);
+  expectCapabilityBody(response);
 }
 
 TEST_F(RpcRouterTest, CapabilityRpcIgnoresJunkPayloadAndAnswersUnderDefaultDenyPolicy)
@@ -272,7 +277,7 @@ TEST_F(RpcRouterTest, CapabilityRpcIgnoresJunkPayloadAndAnswersUnderDefaultDenyP
   RpcRouterHarness harness(makeServicePolicy({}, {"*"}));
 
   const auto response = harness.invokeRpc(protocol::kCapabilityMethod, makeRpcInvocation("participant-1", R"("junk")"));
-  expectEmptyCapabilityBody(response);
+  expectCapabilityBody(response);
   EXPECT_TRUE(harness.connection.state->sent_byte_streams.empty());
   EXPECT_TRUE(harness.connection.state->published_data_calls.empty());
 }
