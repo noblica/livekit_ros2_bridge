@@ -288,10 +288,11 @@ TEST(SubscriptionPayloadsTest, ParseHeartbeatRecordsUnsupportedKinds)
   ASSERT_TRUE(invalid_preferences.unsupported[0].name.has_value());
   EXPECT_EQ(*invalid_preferences.unsupported[0].name, "/battery");
 
+  // `kind` is echoed verbatim, including surrounding whitespace; trim is validation-only.
   const auto padded_kind = parsePayload(R"({"subscriptions":[{"kind":"  service  ","name":"/battery"}]})");
   EXPECT_EQ(padded_kind.demands.size(), 0U);
   ASSERT_EQ(padded_kind.unsupported.size(), 1U);
-  EXPECT_EQ(padded_kind.unsupported[0].kind, "service");
+  EXPECT_EQ(padded_kind.unsupported[0].kind, "  service  ");
   EXPECT_EQ(*padded_kind.unsupported[0].name, "/battery");
 }
 

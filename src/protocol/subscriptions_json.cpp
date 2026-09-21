@@ -126,7 +126,8 @@ bool parseTarget(const nlohmann::json & entry, SubscriptionDemand & demand, Unsu
     throw ValidationError(kSubscriptionKindField, "heartbeat subscription 'kind' must be a string");
   }
 
-  const std::string kind = trim(kind_field->get_ref<const std::string &>());
+  const std::string & raw_kind = kind_field->get_ref<const std::string &>();
+  const std::string kind = trim(raw_kind);
   if (kind.empty()) {
     throw ValidationError(kSubscriptionKindField, "heartbeat subscription 'kind' must be a non-empty value");
   }
@@ -137,7 +138,7 @@ bool parseTarget(const nlohmann::json & entry, SubscriptionDemand & demand, Unsu
   } else if (kind == "other_audio") {
     demand.kind = SubscriptionTargetKind::OtherAudio;
   } else {
-    unsupported.kind = kind;
+    unsupported.kind = raw_kind;
     if (const auto name_field = entry.find("name"); name_field != entry.end() && name_field->is_string()) {
       unsupported.name = name_field->get_ref<const std::string &>();
     }
