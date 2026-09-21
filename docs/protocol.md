@@ -300,7 +300,7 @@ LiveKit exposes client identity through `caller_identity` on RPCs and `requester
 - `v` MUST be the protocol version, currently `2`.
 - `type` MUST always be `lkros.status`.
 - `subscriptions` MUST be present on every status packet and MUST be non-empty.
-- `subscriptions` MUST reflect the heartbeat's effective request set after canonicalization and coalescing, in effective-request order.
+- `subscriptions` MUST reflect the heartbeat's effective request set after canonicalization and coalescing, in effective-request order. Unrecognized-kind error entries are the exception: they MUST appear after recognized targets, in first-seen order.
 - `session_id` MUST be included only when the heartbeat carried a non-blank `session_id`.
 - `lease_expires_in_ms` MUST be included on every non-empty status packet.
 - `lease_expires_in_ms` MUST be treated as approximate; the bridge computes it at serialization time.

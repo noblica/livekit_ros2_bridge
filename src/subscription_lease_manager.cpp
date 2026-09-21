@@ -325,11 +325,11 @@ SubscriptionStatusReport SubscriptionLeaseManager::createStatusReport(
   report.lease_expiry = expiry;
   report.statuses.reserve(heartbeat.demands.size() + heartbeat.unsupported.size());
 
-  for (const auto & unsupported : heartbeat.unsupported) {
-    appendUnsupportedStatus(report, requester_identity, unsupported);
-  }
   for (const auto & demand : heartbeat.demands) {
     appendDemandStatus(report, requester_identity, demand, expiry);
+  }
+  for (const auto & unsupported : heartbeat.unsupported) {
+    appendUnsupportedStatus(report, requester_identity, unsupported);
   }
 
   return report;

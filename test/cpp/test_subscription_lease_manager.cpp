@@ -459,8 +459,8 @@ TEST_F(SubscriptionLeaseManagerHeartbeatTest, UnsupportedKindEntryIsAnsweredWith
   auto manager = makeManager(access_policy_);
   const auto payload = payloadBytes(
     R"({"session_id":"session-1","subscriptions":[
-        {"kind":"service","name":"/battery"},
-        {"kind":"topic","name":"/battery_state"}
+        {"kind":"topic","name":"/battery_state"},
+        {"kind":"service","name":"/battery"}
       ]})");
 
   EXPECT_NO_THROW(manager.handleHeartbeatPayload("requester-1", payload));
@@ -469,15 +469,15 @@ TEST_F(SubscriptionLeaseManagerHeartbeatTest, UnsupportedKindEntryIsAnsweredWith
   EXPECT_EQ(envelope["session_id"], "session-1");
   ASSERT_EQ(envelope["subscriptions"].size(), 2U);
 
-  const auto & unsupported = envelope["subscriptions"].at(0);
+  const auto & status = envelope["subscriptions"].at(0);
+  expectStatusEntry(status, "topic", "/battery_state", "active");
+
+  const auto & unsupported = envelope["subscriptions"].at(1);
   EXPECT_EQ(unsupported["kind"], "service");
   EXPECT_EQ(unsupported["name"], "/battery");
   EXPECT_EQ(unsupported["status"], "error");
   EXPECT_EQ(unsupported["error"]["reason"], "unsupported_kind");
   EXPECT_EQ(unsupported["error"]["message"], "This bridge does not support subscription kind 'service'.");
-
-  const auto & status = envelope["subscriptions"].at(1);
-  expectStatusEntry(status, "topic", "/battery_state", "active");
   (void)publisher;
 }
 
@@ -1422,6 +1422,8 @@ TEST_F(SubscriptionLeaseManagerHeartbeatTest, MixedSubscriptionResultsArePublish
   const auto envelope = extractPublishedStatusEnvelope(*state_, "requester-1");
   ASSERT_TRUE(envelope.contains("subscriptions"));
   ASSERT_EQ(envelope["subscriptions"].size(), 3U);
+  // Unrecognized-kind errors answer after recognized targets, in first-seen order.
+  EXPECT_EQ(envelope["subscriptions"].at(2)["kind"], "hologram_feed");
 
   const auto unsupported_status = findStatusEntry(envelope, "hologram_feed", "deck_left");
   ASSERT_TRUE(unsupported_status.has_value());
