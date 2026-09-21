@@ -10,6 +10,9 @@ Changelog for package livekit_ros2_bridge
 0.3.0 (Unreleased)
 ------------------
 * Add configured non-ROS audio sources as mono LiveKit tracks.
+* Skip heartbeat entries with unrecognized subscription kinds instead of rejecting the whole
+  heartbeat, so newer clients keep working against older bridges. Recognized-kind validation is
+  unchanged, and skipped kinds are logged by the bridge.
 
 0.2.0 (Unreleased)
 ------------------

@@ -429,6 +429,30 @@ TEST_F(SubscriptionLeaseManagerHeartbeatTest, InvalidHeartbeatPayloadIsDroppedWi
   EXPECT_TRUE(state_->published_data_track_names.empty());
 }
 
+TEST_F(SubscriptionLeaseManagerHeartbeatTest, UnsupportedKindEntryIsSkippedAndRemainingTargetsHandled)
+{
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node_);
+
+  auto publisher = advertiseTopic<sensor_msgs::msg::BatteryState>(executor, node_, "/battery_state");
+
+  auto manager = makeManager(access_policy_);
+  const auto payload = payloadBytes(
+    R"({"session_id":"session-1","subscriptions":[
+        {"kind":"service","name":"/battery"},
+        {"kind":"topic","name":"/battery_state"}
+      ]})");
+
+  EXPECT_NO_THROW(manager.handleHeartbeatPayload("requester-1", payload));
+
+  const auto envelope = extractPublishedStatusEnvelope(*state_, "requester-1");
+  EXPECT_EQ(envelope["session_id"], "session-1");
+
+  const auto status = extractStatusEntry(envelope);
+  expectStatusEntry(status, "topic", "/battery_state", "active");
+  (void)publisher;
+}
+
 TEST(SubscriptionLeaseManagerTest, HeartbeatReturnsDeterministicDataTrackForNonVideoTopics)
 {
   ScopedRclcppInit init;

@@ -14,6 +14,7 @@
 
 #include "protocol/subscriptions_json.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <exception>
@@ -114,7 +115,10 @@ std::optional<int> parseIntervalMs(const nlohmann::json & entry)
   return ms;
 }
 
-void parseTarget(const nlohmann::json & entry, SubscriptionDemand & demand)
+// Parses one subscription entry into `demand`. Returns false when the entry's
+// `kind` is unrecognized; such entries are skipped by the caller instead of
+// rejecting the whole heartbeat. All other validation failures still throw.
+bool parseTarget(const nlohmann::json & entry, SubscriptionDemand & demand)
 {
   const auto kind_field = entry.find("kind");
   if (kind_field == entry.end() || !kind_field->is_string()) {
@@ -129,8 +133,7 @@ void parseTarget(const nlohmann::json & entry, SubscriptionDemand & demand)
   } else if (kind == "other_audio") {
     demand.kind = SubscriptionTargetKind::OtherAudio;
   } else {
-    throw ValidationError(
-      kSubscriptionKindField, "heartbeat subscription 'kind' must be 'topic', 'other_video', or 'other_audio'");
+    return false;
   }
 
   const auto name_field = entry.find("name");
@@ -147,7 +150,7 @@ void parseTarget(const nlohmann::json & entry, SubscriptionDemand & demand)
     } catch (const std::exception & exc) {
       throw ValidationError(kSubscriptionNameField, exc.what());
     }
-    return;
+    return true;
   }
 
   demand.name = trim(raw);
@@ -155,6 +158,7 @@ void parseTarget(const nlohmann::json & entry, SubscriptionDemand & demand)
     throw ValidationError(
       kSubscriptionNameField, "heartbeat subscription other source name must trim to a non-empty name");
   }
+  return true;
 }
 
 nlohmann::json serialize(const SubscriptionStatus & status)
@@ -256,7 +260,18 @@ SubscriptionHeartbeat parse(const nlohmann::json & body)
     }
 
     SubscriptionDemand demand;
-    parseTarget(entry, demand);
+    if (!parseTarget(entry, demand)) {
+      // Unrecognized kind: skip the entry so an older bridge still honors the
+      // targets it understands. Track the raw kind for the rejection log.
+      const std::string skipped_kind = trim(entry.find("kind")->get_ref<const std::string &>());
+      if (
+        std::find(heartbeat.skipped_kinds.begin(), heartbeat.skipped_kinds.end(), skipped_kind) ==
+        heartbeat.skipped_kinds.end())
+      {
+        heartbeat.skipped_kinds.push_back(skipped_kind);
+      }
+      continue;
+    }
     if (const auto interval = parseIntervalMs(entry)) {
       demand.preferred_interval_ms = *interval;
     }

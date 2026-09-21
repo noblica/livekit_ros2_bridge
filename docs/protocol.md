@@ -130,6 +130,7 @@ Errors reach clients through two distinct channels, and the choice of channel is
 | Malformed data-packet topic messages, unsupported data-packet topics, and anonymous data-packet writes | Logged by the bridge and dropped. No reply. |
 | Malformed subscription heartbeats | Logged by the bridge and dropped. No `lkros.status` reply. |
 | Well-formed heartbeats containing individually failing subscription targets | Per-target entry on `lkros.status` with `status: "error"`. |
+| Well-formed heartbeats containing unrecognized subscription kinds | Unrecognized entries are skipped and logged by the bridge; remaining targets are processed. |
 | RPC failures | LiveKit RPC error, with a code from the table below. |
 
 The bridge MUST NOT invent a reply channel for a domain that does not have one. In particular, a malformed [`ros2.topic.pub`](#data-packet-topic-ros2topicpub) packet MUST NOT produce an `lkros.status` entry or any other acknowledgement.
@@ -224,7 +225,7 @@ Two clients subscribing to the same [normalized](#versioning-and-terminology) no
 
 - `subscriptions` MUST be present and MUST be an array.
 - Each entry MUST be an object with string `kind` and `name` fields.
-- `kind` MUST be `topic`, `other_video`, or `other_audio`.
+- `kind` MUST be `topic`, `other_video`, or `other_audio`; an unrecognized `kind` MUST cause the bridge to skip that entry, not reject the heartbeat. Validation of the remaining entries is unchanged.
 - `topic` names MUST [normalize](#versioning-and-terminology) to non-empty [ROS resource names](#versioning-and-terminology).
 - `other_video` names MUST address configured entries from `video.other.<id>`.
 - `other_audio` names MUST address configured entries from `audio.other.<id>`.

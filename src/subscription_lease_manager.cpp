@@ -143,6 +143,19 @@ void SubscriptionLeaseManager::handleHeartbeatPayload(
     return;
   }
 
+  if (!heartbeat->skipped_kinds.empty()) {
+    std::string joined_kinds;
+    for (const auto & kind : heartbeat->skipped_kinds) {
+      if (!joined_kinds.empty()) {
+        joined_kinds += ", ";
+      }
+      joined_kinds += kind;
+    }
+    LogEvent skipped_event(kLogger, "unsupported_heartbeat_kind_skipped");
+    skipped_event.fieldOr("requester_identity", requester_identity).field("kinds", joined_kinds);
+    skipped_event.warnThrottle(*clock_, kLogThrottle);
+  }
+
   handleHeartbeat(requester_identity, *heartbeat);
 }
 

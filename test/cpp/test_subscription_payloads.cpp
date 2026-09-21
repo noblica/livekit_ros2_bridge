@@ -214,10 +214,40 @@ TEST(SubscriptionPayloadsTest, ParseHeartbeatRejectsBlankOrUnsupportedTargets)
     nlohmann::json::parse(R"({"subscriptions":[{"kind":"other_video","name":"   "}]})"),
     "heartbeat subscription other source name must trim to a non-empty name",
     "subscriptions.name");
-  expectParseError(
-    nlohmann::json::parse(R"({"subscriptions":[{"kind":"service","name":"/battery"}]})"),
-    "heartbeat subscription 'kind' must be 'topic', 'other_video', or 'other_audio'",
-    "subscriptions.kind");
+}
+
+TEST(SubscriptionPayloadsTest, ParseHeartbeatSkipsUnsupportedKinds)
+{
+  const auto mixed = parsePayload(
+    R"({"subscriptions":[
+        {"kind":"service","name":"/battery"},
+        {"kind":"topic","name":"/battery_state"},
+        {"kind":"widget","name":"gadget"}
+      ]})");
+  ASSERT_EQ(mixed.demands.size(), 1U);
+  EXPECT_EQ(mixed.demands[0].kind, SubscriptionTargetKind::Topic);
+  EXPECT_EQ(mixed.demands[0].name, expandHeartbeatTopicName("/battery_state"));
+  ASSERT_EQ(mixed.skipped_kinds.size(), 2U);
+  EXPECT_EQ(mixed.skipped_kinds[0], "service");
+  EXPECT_EQ(mixed.skipped_kinds[1], "widget");
+
+  const auto unknown_only = parsePayload(R"({"subscriptions":[{"kind":"service","name":"/battery"}]})");
+  EXPECT_EQ(unknown_only.demands.size(), 0U);
+  ASSERT_EQ(unknown_only.skipped_kinds.size(), 1U);
+  EXPECT_EQ(unknown_only.skipped_kinds[0], "service");
+
+  const auto duplicated = parsePayload(
+    R"({"subscriptions":[
+        {"kind":"topic","name":"/battery"},
+        {"kind":"service","name":"/battery"},
+        {"kind":"service","name":"/lidar"}
+      ]})");
+  ASSERT_EQ(duplicated.demands.size(), 1U);
+  ASSERT_EQ(duplicated.skipped_kinds.size(), 1U);
+  EXPECT_EQ(duplicated.skipped_kinds[0], "service");
+
+  const auto none_skipped = parsePayload(R"({"subscriptions":[{"kind":"topic","name":"/battery"}]})");
+  EXPECT_TRUE(none_skipped.skipped_kinds.empty());
 }
 
 TEST(SubscriptionPayloadsTest, ParseHeartbeatRejectsInvalidIntervalTypes)

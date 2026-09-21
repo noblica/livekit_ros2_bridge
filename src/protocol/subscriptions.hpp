@@ -42,6 +42,8 @@ struct SubscriptionHeartbeat
   // Normalized client-session identifier; absent for missing, null, or blank wire values.
   std::optional<std::string> session_id;
   std::vector<SubscriptionDemand> demands;
+  // Raw `kind` values of skipped entries, deduplicated in first-seen order.
+  std::vector<std::string> skipped_kinds;
 };
 
 enum class SubscriptionDeliveryKind
