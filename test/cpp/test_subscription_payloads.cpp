@@ -214,6 +214,10 @@ TEST(SubscriptionPayloadsTest, ParseHeartbeatRejectsBlankOrUnsupportedTargets)
     nlohmann::json::parse(R"({"subscriptions":[{"kind":"other_video","name":"   "}]})"),
     "heartbeat subscription other source name must trim to a non-empty name",
     "subscriptions.name");
+  expectParseError(
+    nlohmann::json::parse(R"({"subscriptions":[{"kind":"   ","name":"/battery"}]})"),
+    "heartbeat subscription 'kind' must be a non-empty value",
+    "subscriptions.kind");
 }
 
 TEST(SubscriptionPayloadsTest, ParseHeartbeatSkipsUnsupportedKinds)
@@ -248,6 +252,27 @@ TEST(SubscriptionPayloadsTest, ParseHeartbeatSkipsUnsupportedKinds)
 
   const auto none_skipped = parsePayload(R"({"subscriptions":[{"kind":"topic","name":"/battery"}]})");
   EXPECT_TRUE(none_skipped.skipped_kinds.empty());
+
+  const auto missing_name = parsePayload(R"({"subscriptions":[{"kind":"service"}]})");
+  EXPECT_EQ(missing_name.demands.size(), 0U);
+  ASSERT_EQ(missing_name.skipped_kinds.size(), 1U);
+  EXPECT_EQ(missing_name.skipped_kinds[0], "service");
+
+  const auto non_string_name = parsePayload(R"({"subscriptions":[{"kind":"service","name":123}]})");
+  EXPECT_EQ(non_string_name.demands.size(), 0U);
+  ASSERT_EQ(non_string_name.skipped_kinds.size(), 1U);
+  EXPECT_EQ(non_string_name.skipped_kinds[0], "service");
+
+  const auto invalid_preferences =
+    parsePayload(R"({"subscriptions":[{"kind":"service","name":"/battery","delivery_preferences":125}]})");
+  EXPECT_EQ(invalid_preferences.demands.size(), 0U);
+  ASSERT_EQ(invalid_preferences.skipped_kinds.size(), 1U);
+  EXPECT_EQ(invalid_preferences.skipped_kinds[0], "service");
+
+  const auto padded_kind = parsePayload(R"({"subscriptions":[{"kind":"  service  ","name":"/battery"}]})");
+  EXPECT_EQ(padded_kind.demands.size(), 0U);
+  ASSERT_EQ(padded_kind.skipped_kinds.size(), 1U);
+  EXPECT_EQ(padded_kind.skipped_kinds[0], "service");
 }
 
 TEST(SubscriptionPayloadsTest, ParseHeartbeatRejectsInvalidIntervalTypes)

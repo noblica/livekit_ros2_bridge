@@ -126,6 +126,9 @@ bool parseTarget(const nlohmann::json & entry, SubscriptionDemand & demand)
   }
 
   const std::string kind = trim(kind_field->get_ref<const std::string &>());
+  if (kind.empty()) {
+    throw ValidationError(kSubscriptionKindField, "heartbeat subscription 'kind' must be a non-empty value");
+  }
   if (kind == "topic") {
     demand.kind = SubscriptionTargetKind::Topic;
   } else if (kind == "other_video") {
