@@ -164,6 +164,7 @@ private:
   Subscriptions subscriptions_;
 
   EventThrottle conflict_throttle_{kLogThrottle};
+  EventThrottle unsupported_kind_throttle_{kLogThrottle};
 
   void handleHeartbeat(const std::string & requester_identity, const SubscriptionHeartbeat & heartbeat);
   std::optional<std::string> resolveIdentity(

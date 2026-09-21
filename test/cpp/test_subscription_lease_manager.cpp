@@ -495,6 +495,71 @@ TEST_F(SubscriptionLeaseManagerHeartbeatTest, UnsupportedKindOnlyHeartbeatStillP
   EXPECT_EQ(unsupported["error"]["reason"], "unsupported_kind");
 }
 
+TEST_F(SubscriptionLeaseManagerHeartbeatTest, UnsupportedKindBeforeRecognizedTargetIsAnsweredAfterIt)
+{
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node_);
+
+  auto publisher = advertiseTopic<sensor_msgs::msg::BatteryState>(executor, node_, "/battery_state");
+
+  auto manager = makeManager(access_policy_);
+  const auto payload = payloadBytes(
+    R"({"session_id":"session-1","subscriptions":[
+        {"kind":"service","name":"/battery"},
+        {"kind":"topic","name":"/battery_state"}
+      ]})");
+
+  EXPECT_NO_THROW(manager.handleHeartbeatPayload("requester-1", payload));
+
+  const auto envelope = extractPublishedStatusEnvelope(*state_, "requester-1");
+  ASSERT_EQ(envelope["subscriptions"].size(), 2U);
+  // Wire order has the unsupported entry first; status order still answers recognized
+  // targets first and appends the unsupported error afterward.
+  EXPECT_EQ(envelope["subscriptions"].at(0)["kind"], "topic");
+  expectStatusEntry(envelope["subscriptions"].at(0), "topic", "/battery_state", "active");
+  EXPECT_EQ(envelope["subscriptions"].at(1)["kind"], "service");
+  EXPECT_EQ(envelope["subscriptions"].at(1)["error"]["reason"], "unsupported_kind");
+  (void)publisher;
+}
+
+TEST_F(SubscriptionLeaseManagerHeartbeatTest, MultipleUnsupportedKindsKeepFirstSeenOrderAndDedupe)
+{
+  auto manager = makeManager(access_policy_);
+  const auto payload = payloadBytes(
+    R"({"session_id":"session-1","subscriptions":[
+        {"kind":"a:b","name":"x"},
+        {"kind":"service","name":"/battery"},
+        {"kind":"service","name":"/battery"},
+        {"kind":"a","name":"b:x"},
+        {"kind":"widget"},
+        {"kind":"widget","name":""}
+      ]})");
+
+  EXPECT_NO_THROW(manager.handleHeartbeatPayload("requester-1", payload));
+
+  const auto envelope = extractPublishedStatusEnvelope(*state_, "requester-1");
+  ASSERT_EQ(envelope["subscriptions"].size(), 5U);
+
+  // First-seen order among unsupported entries, deduplicated by (kind, name) identity:
+  // absent `name` and empty-string `name` are distinct, and ':' in either field cannot
+  // make distinct entries collide.
+  EXPECT_EQ(envelope["subscriptions"].at(0)["kind"], "a:b");
+  EXPECT_EQ(envelope["subscriptions"].at(0)["name"], "x");
+  EXPECT_EQ(envelope["subscriptions"].at(1)["kind"], "service");
+  EXPECT_EQ(envelope["subscriptions"].at(1)["name"], "/battery");
+  EXPECT_EQ(envelope["subscriptions"].at(2)["kind"], "a");
+  EXPECT_EQ(envelope["subscriptions"].at(2)["name"], "b:x");
+  EXPECT_EQ(envelope["subscriptions"].at(3)["kind"], "widget");
+  EXPECT_FALSE(envelope["subscriptions"].at(3).contains("name"));
+  EXPECT_EQ(envelope["subscriptions"].at(4)["kind"], "widget");
+  EXPECT_EQ(envelope["subscriptions"].at(4)["name"], "");
+
+  for (const auto & entry : envelope["subscriptions"]) {
+    EXPECT_EQ(entry["status"], "error");
+    EXPECT_EQ(entry["error"]["reason"], "unsupported_kind");
+  }
+}
+
 TEST(SubscriptionLeaseManagerTest, HeartbeatReturnsDeterministicDataTrackForNonVideoTopics)
 {
   ScopedRclcppInit init;

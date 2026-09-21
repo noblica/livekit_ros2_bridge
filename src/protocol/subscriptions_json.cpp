@@ -238,6 +238,9 @@ nlohmann::json serialize(const SubscriptionErrorStatus & status)
   if (reason == nullptr) {
     throw std::invalid_argument("subscription status error reason is invalid");
   }
+  if (status.reason == SubscriptionErrorReason::UnsupportedKind && status.raw_kind.empty()) {
+    throw std::invalid_argument("unsupported kind status is missing the raw kind to echo");
+  }
 
   // Unrecognized kinds echo the client's raw kind and name verbatim; recognized kinds
   // use the standard wire mapping.

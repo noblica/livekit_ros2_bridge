@@ -158,7 +158,7 @@ When a heartbeat target fails individually, the corresponding [`lkros.status`](#
 | `not_found` | lookup or subscription creation failed for another reason |
 | `unsupported_kind` | the bridge does not support the entry's subscription kind |
 
-New reasons MAY be added in later protocol versions; clients SHOULD treat unrecognized reasons as equivalent to `not_found`.
+New reasons MAY be added in later versions of this specification; clients SHOULD treat unrecognized reasons as equivalent to `not_found`. This document describes the unreleased protocol version 2, and `unsupported_kind` is part of it: version 2 has never shipped, so adding the reason does not break a released contract.
 
 ### Example
 
@@ -225,14 +225,14 @@ Two clients subscribing to the same [normalized](#versioning-and-terminology) no
 #### Validation
 
 - `subscriptions` MUST be present and MUST be an array.
-- Each entry MUST be an object with string `kind` and `name` fields.
+- Each entry MUST be an object with a string `kind` field and, for recognized kinds, a string `name` field.
 - `kind` MUST be `topic`, `other_video`, or `other_audio`. When an entry's `kind` is not one of these values, the bridge MUST answer that entry with an [`unsupported_kind`](#lkrosstatus-error-reasons) error on `lkros.status` rather than reject the heartbeat; validation of the remaining entries is unchanged.
 - An unrecognized-kind entry is answered as an error in its entirety; its remaining fields are never validated, since the field semantics of an unknown kind cannot be assumed. The error entry echoes the entry's `kind` verbatim and includes `name` only when the client sent a string `name`, echoed verbatim. A missing, non-string, or blank `kind` is a malformed entry and still rejects the heartbeat.
 - `topic` names MUST [normalize](#versioning-and-terminology) to non-empty [ROS resource names](#versioning-and-terminology).
 - `other_video` names MUST address configured entries from `video.other.<id>`.
 - `other_audio` names MUST address configured entries from `audio.other.<id>`.
-- `delivery_preferences`, when present, MUST be an object.
-- `delivery_preferences.interval_ms`, when present, MUST be an integer.
+- For recognized kinds, `delivery_preferences`, when present, MUST be an object.
+- For recognized kinds, `delivery_preferences.interval_ms`, when present, MUST be an integer.
 
 #### Authorization
 

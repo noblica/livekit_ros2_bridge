@@ -8,8 +8,8 @@ Changelog for package livekit_ros2_bridge
   without caller identity or access-policy checks.
 * Answer heartbeat entries with unrecognized subscription kinds via an `unsupported_kind` error
   entry on `lkros.status` instead of skipping them silently, so clients can observe and correct
-  the mismatch. Unrecognized entries' remaining fields are echoed but not validated; blank kinds
-  still reject the heartbeat.
+  the mismatch. The entry's `kind` and `name` are echoed but never validated; other fields are
+  ignored, and blank kinds still reject the heartbeat.
 
 0.3.0 (Unreleased)
 ------------------
