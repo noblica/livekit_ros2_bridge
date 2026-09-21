@@ -265,7 +265,7 @@ SubscriptionHeartbeat parse(const nlohmann::json & body)
     SubscriptionDemand demand;
     if (!parseTarget(entry, demand)) {
       // Unrecognized kind: skip the entry so an older bridge still honors the
-      // targets it understands. Track the raw kind for the rejection log.
+      // targets it understands. Track the trimmed kind for the skip warning log.
       const std::string skipped_kind = trim(entry.find("kind")->get_ref<const std::string &>());
       if (
         std::find(heartbeat.skipped_kinds.begin(), heartbeat.skipped_kinds.end(), skipped_kind) ==
