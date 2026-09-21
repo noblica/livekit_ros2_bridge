@@ -19,6 +19,7 @@
 #include <exception>
 #include <limits>
 #include <optional>
+#include <set>
 #include <stdexcept>
 #include <unordered_map>
 #include <utility>
@@ -259,7 +260,11 @@ SubscriptionHeartbeat parse(const nlohmann::json & body)
 {
   SubscriptionHeartbeat heartbeat;
   std::unordered_map<std::string, std::size_t> index_by_target;
-  std::unordered_map<std::string, std::size_t> index_by_unsupported;
+  // Deduplicates unsupported entries by their (raw kind, name) identity, mirroring the
+  // first-seen-order `seen`-set idiom used by ros2.interface.show and the config loaders.
+  // A pair key keeps absent `name` distinct from an empty-string `name` and is immune to
+  // `:` appearing in client-controlled strings.
+  std::set<std::pair<std::string, std::optional<std::string>>> seen_unsupported;
   try {
     heartbeat.session_id = protocol::detail::optionalString(
       body, "session_id", "heartbeat session_id must be a string", /*null_is_absent=*/true);
@@ -286,9 +291,7 @@ SubscriptionHeartbeat parse(const nlohmann::json & body)
     if (!parseTarget(entry, demand, unsupported)) {
       // Unrecognized kind: record the entry so the status report can answer it with an
       // `unsupported_kind` error while the bridge keeps honoring the targets it understands.
-      const auto [pos, inserted] = index_by_unsupported.emplace(
-        unsupported.kind + ":" + unsupported.name.value_or(""), heartbeat.unsupported.size());
-      if (inserted) {
+      if (seen_unsupported.insert({unsupported.kind, unsupported.name}).second) {
         heartbeat.unsupported.push_back(std::move(unsupported));
       }
       continue;

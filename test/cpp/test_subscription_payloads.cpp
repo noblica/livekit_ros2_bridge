@@ -294,6 +294,31 @@ TEST(SubscriptionPayloadsTest, ParseHeartbeatRecordsUnsupportedKinds)
   ASSERT_EQ(padded_kind.unsupported.size(), 1U);
   EXPECT_EQ(padded_kind.unsupported[0].kind, "  service  ");
   EXPECT_EQ(*padded_kind.unsupported[0].name, "/battery");
+
+  // An absent `name` and an empty-string `name` are distinct identities, so both are answered.
+  const auto absent_vs_empty_name = parsePayload(
+    R"({"subscriptions":[
+        {"kind":"service"},
+        {"kind":"service","name":""}
+      ]})");
+  EXPECT_EQ(absent_vs_empty_name.demands.size(), 0U);
+  ASSERT_EQ(absent_vs_empty_name.unsupported.size(), 2U);
+  EXPECT_EQ(absent_vs_empty_name.unsupported[0].name, std::nullopt);
+  ASSERT_TRUE(absent_vs_empty_name.unsupported[1].name.has_value());
+  EXPECT_EQ(*absent_vs_empty_name.unsupported[1].name, "");
+
+  // Kinds and names containing ':' must not collide with each other's fields.
+  const auto colon_kinds = parsePayload(
+    R"({"subscriptions":[
+        {"kind":"a:b","name":"x"},
+        {"kind":"a","name":"b:x"}
+      ]})");
+  EXPECT_EQ(colon_kinds.demands.size(), 0U);
+  ASSERT_EQ(colon_kinds.unsupported.size(), 2U);
+  EXPECT_EQ(colon_kinds.unsupported[0].kind, "a:b");
+  EXPECT_EQ(*colon_kinds.unsupported[0].name, "x");
+  EXPECT_EQ(colon_kinds.unsupported[1].kind, "a");
+  EXPECT_EQ(*colon_kinds.unsupported[1].name, "b:x");
 }
 
 TEST(SubscriptionPayloadsTest, ParseHeartbeatRejectsInvalidIntervalTypes)
