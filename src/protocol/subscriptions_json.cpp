@@ -117,8 +117,9 @@ std::optional<int> parseIntervalMs(const nlohmann::json & entry)
 
 // Parses one subscription entry into `demand`. Returns false when the entry's
 // `kind` is unrecognized; such entries are skipped by the caller instead of
-// rejecting the whole heartbeat. All other validation failures still throw.
-bool parseTarget(const nlohmann::json & entry, SubscriptionDemand & demand)
+// rejecting the whole heartbeat, with `unrecognized_kind` set to the trimmed
+// kind. All other validation failures still throw.
+bool parseTarget(const nlohmann::json & entry, SubscriptionDemand & demand, std::string & unrecognized_kind)
 {
   const auto kind_field = entry.find("kind");
   if (kind_field == entry.end() || !kind_field->is_string()) {
@@ -136,6 +137,7 @@ bool parseTarget(const nlohmann::json & entry, SubscriptionDemand & demand)
   } else if (kind == "other_audio") {
     demand.kind = SubscriptionTargetKind::OtherAudio;
   } else {
+    unrecognized_kind = kind;
     return false;
   }
 
@@ -263,10 +265,10 @@ SubscriptionHeartbeat parse(const nlohmann::json & body)
     }
 
     SubscriptionDemand demand;
-    if (!parseTarget(entry, demand)) {
+    std::string skipped_kind;
+    if (!parseTarget(entry, demand, skipped_kind)) {
       // Unrecognized kind: skip the entry so an older bridge still honors the
       // targets it understands. Track the trimmed kind for the skip warning log.
-      const std::string skipped_kind = trim(entry.find("kind")->get_ref<const std::string &>());
       if (
         std::find(heartbeat.skipped_kinds.begin(), heartbeat.skipped_kinds.end(), skipped_kind) ==
         heartbeat.skipped_kinds.end())
