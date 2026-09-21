@@ -190,6 +190,10 @@ private:
     const std::string & requester_identity,
     const SubscriptionDemand & demand,
     Clock::time_point expiry);
+  void appendUnsupportedStatus(
+    SubscriptionStatusReport & report,
+    const std::string & requester_identity,
+    const UnsupportedSubscription & unsupported);
   void publishStatusReport(
     const std::string & requester_identity,
     const std::optional<std::string> & session_id,

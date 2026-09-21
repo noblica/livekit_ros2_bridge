@@ -130,7 +130,7 @@ Errors reach clients through two distinct channels, and the choice of channel is
 | Malformed data-packet topic messages, unsupported data-packet topics, and anonymous data-packet writes | Logged by the bridge and dropped. No reply. |
 | Malformed subscription heartbeats | Logged by the bridge and dropped. No `lkros.status` reply. |
 | Well-formed heartbeats containing individually failing subscription targets | Per-target entry on `lkros.status` with `status: "error"`. |
-| Well-formed heartbeats containing unrecognized subscription kinds | Unrecognized entries are skipped and logged by the bridge; remaining targets are processed. |
+| Well-formed heartbeats containing unrecognized subscription kinds | Unrecognized entries produce a per-target `unsupported_kind` error entry on `lkros.status`; remaining targets are processed. |
 | RPC failures | LiveKit RPC error, with a code from the table below. |
 
 The bridge MUST NOT invent a reply channel for a domain that does not have one. In particular, a malformed [`ros2.topic.pub`](#data-packet-topic-ros2topicpub) packet MUST NOT produce an `lkros.status` entry or any other acknowledgement.
@@ -156,6 +156,7 @@ When a heartbeat target fails individually, the corresponding [`lkros.status`](#
 | --- | --- |
 | `forbidden` | subscribe policy denies the topic |
 | `not_found` | lookup or subscription creation failed for another reason |
+| `unsupported_kind` | the bridge does not support the entry's subscription kind |
 
 New reasons MAY be added in later protocol versions; clients SHOULD treat unrecognized reasons as equivalent to `not_found`.
 
@@ -225,8 +226,8 @@ Two clients subscribing to the same [normalized](#versioning-and-terminology) no
 
 - `subscriptions` MUST be present and MUST be an array.
 - Each entry MUST be an object with string `kind` and `name` fields.
-- `kind` MUST be `topic`, `other_video`, or `other_audio`. When an entry's `kind` is not one of these values, the bridge MUST skip that entry rather than reject the heartbeat; validation of the remaining entries is unchanged.
-- A skipped entry is skipped in its entirety; its remaining fields are neither validated nor reported. A missing, non-string, or blank `kind` is a malformed entry and still rejects the heartbeat.
+- `kind` MUST be `topic`, `other_video`, or `other_audio`. When an entry's `kind` is not one of these values, the bridge MUST answer that entry with an [`unsupported_kind`](#lkrosstatus-error-reasons) error on `lkros.status` rather than reject the heartbeat; validation of the remaining entries is unchanged.
+- An unrecognized-kind entry is answered as an error in its entirety; its remaining fields are never validated, since the field semantics of an unknown kind cannot be assumed. The error entry echoes the entry's `kind` verbatim and includes `name` only when the client sent a string `name`, echoed verbatim. A missing, non-string, or blank `kind` is a malformed entry and still rejects the heartbeat.
 - `topic` names MUST [normalize](#versioning-and-terminology) to non-empty [ROS resource names](#versioning-and-terminology).
 - `other_video` names MUST address configured entries from `video.other.<id>`.
 - `other_audio` names MUST address configured entries from `audio.other.<id>`.
@@ -311,9 +312,11 @@ LiveKit exposes client identity through `caller_identity` on RPCs and `requester
 
 Every entry MUST include:
 
-- `kind`: `topic`, `other_video`, or `other_audio`.
-- `name`.
+- `kind`.
 - `status`: `active` or `error`.
+- `name`, except as noted for [unrecognized kinds](#error-entries).
+
+Recognized kinds MUST set `kind` to `topic`, `other_video`, or `other_audio`.
 
 #### Active Entries
 
@@ -335,6 +338,12 @@ Error entries (`status: "error"`) MUST include:
 - `error.reason` (see [`lkros.status` error reasons](#lkrosstatus-error-reasons)).
 - `error.message`.
 
+`unsupported_kind` entries additionally:
+
+- MUST set `kind` to the client's unrecognized kind string, echoed verbatim.
+- MUST include `name` when the client sent a string `name`, echoed verbatim; otherwise `name` MUST be omitted.
+- MUST coalesce repeated identical entries (same echoed `kind` and `name`) into one entry, in first-seen order.
+
 ##### Example
 
 ```json
@@ -345,6 +354,20 @@ Error entries (`status: "error"`) MUST include:
   "error": {
     "reason": "forbidden",
     "message": "subscription denied by policy"
+  }
+}
+```
+
+An `unsupported_kind` entry looks like:
+
+```json
+{
+  "kind": "hologram_feed",
+  "name": "deck_left",
+  "status": "error",
+  "error": {
+    "reason": "unsupported_kind",
+    "message": "This bridge does not support subscription kind 'hologram_feed'."
   }
 }
 ```

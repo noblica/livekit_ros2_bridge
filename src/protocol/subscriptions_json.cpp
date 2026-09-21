@@ -14,7 +14,6 @@
 
 #include "protocol/subscriptions_json.hpp"
 
-#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <exception>
@@ -116,10 +115,11 @@ std::optional<int> parseIntervalMs(const nlohmann::json & entry)
 }
 
 // Parses one subscription entry into `demand`. Returns false when the entry's
-// `kind` is unrecognized; such entries are skipped by the caller instead of
-// rejecting the whole heartbeat, with `unrecognized_kind` set to the trimmed
-// kind. All other validation failures still throw.
-bool parseTarget(const nlohmann::json & entry, SubscriptionDemand & demand, std::string & unrecognized_kind)
+// `kind` is unrecognized; the caller records the entry as unsupported and keeps
+// processing the rest of the heartbeat instead of rejecting it. An unrecognized
+// entry's remaining fields are echoed but never validated, since the naming rules
+// of an unknown kind cannot be assumed. All other validation failures still throw.
+bool parseTarget(const nlohmann::json & entry, SubscriptionDemand & demand, UnsupportedSubscription & unsupported)
 {
   const auto kind_field = entry.find("kind");
   if (kind_field == entry.end() || !kind_field->is_string()) {
@@ -137,7 +137,10 @@ bool parseTarget(const nlohmann::json & entry, SubscriptionDemand & demand, std:
   } else if (kind == "other_audio") {
     demand.kind = SubscriptionTargetKind::OtherAudio;
   } else {
-    unrecognized_kind = kind;
+    unsupported.kind = kind;
+    if (const auto name_field = entry.find("name"); name_field != entry.end() && name_field->is_string()) {
+      unsupported.name = name_field->get_ref<const std::string &>();
+    }
     return false;
   }
 
@@ -226,23 +229,36 @@ nlohmann::json serialize(const SubscriptionErrorStatus & status)
     case SubscriptionErrorReason::NotFound:
       reason = "not_found";
       break;
+    case SubscriptionErrorReason::UnsupportedKind:
+      reason = "unsupported_kind";
+      break;
   }
   if (reason == nullptr) {
     throw std::invalid_argument("subscription status error reason is invalid");
   }
 
-  return {
-    {"kind", toWire(status.kind)},
-    {"name", status.name},
+  // Unrecognized kinds echo the client's raw kind and name verbatim; recognized kinds
+  // use the standard wire mapping.
+  nlohmann::json body = {
+    {"kind", status.reason == SubscriptionErrorReason::UnsupportedKind ? status.raw_kind : toWire(status.kind)},
     {"status", "error"},
     {"error", {{"reason", reason}, {"message", status.message}}},
   };
+  if (status.reason == SubscriptionErrorReason::UnsupportedKind) {
+    if (status.raw_name.has_value()) {
+      body["name"] = *status.raw_name;
+    }
+  } else {
+    body["name"] = status.name;
+  }
+  return body;
 }
 
 SubscriptionHeartbeat parse(const nlohmann::json & body)
 {
   SubscriptionHeartbeat heartbeat;
   std::unordered_map<std::string, std::size_t> index_by_target;
+  std::unordered_map<std::string, std::size_t> index_by_unsupported;
   try {
     heartbeat.session_id = protocol::detail::optionalString(
       body, "session_id", "heartbeat session_id must be a string", /*null_is_absent=*/true);
@@ -265,15 +281,14 @@ SubscriptionHeartbeat parse(const nlohmann::json & body)
     }
 
     SubscriptionDemand demand;
-    std::string skipped_kind;
-    if (!parseTarget(entry, demand, skipped_kind)) {
-      // Unrecognized kind: skip the entry so an older bridge still honors the
-      // targets it understands. Track the trimmed kind for the skip warning log.
-      if (
-        std::find(heartbeat.skipped_kinds.begin(), heartbeat.skipped_kinds.end(), skipped_kind) ==
-        heartbeat.skipped_kinds.end())
-      {
-        heartbeat.skipped_kinds.push_back(skipped_kind);
+    UnsupportedSubscription unsupported;
+    if (!parseTarget(entry, demand, unsupported)) {
+      // Unrecognized kind: record the entry so the status report can answer it with an
+      // `unsupported_kind` error while the bridge keeps honoring the targets it understands.
+      const auto [pos, inserted] = index_by_unsupported.emplace(
+        unsupported.kind + ":" + unsupported.name.value_or(""), heartbeat.unsupported.size());
+      if (inserted) {
+        heartbeat.unsupported.push_back(std::move(unsupported));
       }
       continue;
     }

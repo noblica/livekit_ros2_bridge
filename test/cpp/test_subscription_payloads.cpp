@@ -87,7 +87,7 @@ SubscriptionStatus makeStatus(
 SubscriptionErrorStatus makeErrorStatus(
   SubscriptionTargetKind kind, std::string name, SubscriptionErrorReason reason, std::string message)
 {
-  return {kind, std::move(name), reason, std::move(message)};
+  return {kind, std::move(name), "", std::nullopt, reason, std::move(message)};
 }
 
 nlohmann::json statusBody(
@@ -220,7 +220,7 @@ TEST(SubscriptionPayloadsTest, ParseHeartbeatRejectsBlankOrUnsupportedTargets)
     "subscriptions.kind");
 }
 
-TEST(SubscriptionPayloadsTest, ParseHeartbeatSkipsUnsupportedKinds)
+TEST(SubscriptionPayloadsTest, ParseHeartbeatRecordsUnsupportedKinds)
 {
   const auto mixed = parsePayload(
     R"({"subscriptions":[
@@ -231,14 +231,18 @@ TEST(SubscriptionPayloadsTest, ParseHeartbeatSkipsUnsupportedKinds)
   ASSERT_EQ(mixed.demands.size(), 1U);
   EXPECT_EQ(mixed.demands[0].kind, SubscriptionTargetKind::Topic);
   EXPECT_EQ(mixed.demands[0].name, expandHeartbeatTopicName("/battery_state"));
-  ASSERT_EQ(mixed.skipped_kinds.size(), 2U);
-  EXPECT_EQ(mixed.skipped_kinds[0], "service");
-  EXPECT_EQ(mixed.skipped_kinds[1], "widget");
+  ASSERT_EQ(mixed.unsupported.size(), 2U);
+  EXPECT_EQ(mixed.unsupported[0].kind, "service");
+  ASSERT_TRUE(mixed.unsupported[0].name.has_value());
+  EXPECT_EQ(*mixed.unsupported[0].name, "/battery");
+  EXPECT_EQ(mixed.unsupported[1].kind, "widget");
+  ASSERT_TRUE(mixed.unsupported[1].name.has_value());
+  EXPECT_EQ(*mixed.unsupported[1].name, "gadget");
 
   const auto unknown_only = parsePayload(R"({"subscriptions":[{"kind":"service","name":"/battery"}]})");
   EXPECT_EQ(unknown_only.demands.size(), 0U);
-  ASSERT_EQ(unknown_only.skipped_kinds.size(), 1U);
-  EXPECT_EQ(unknown_only.skipped_kinds[0], "service");
+  ASSERT_EQ(unknown_only.unsupported.size(), 1U);
+  EXPECT_EQ(unknown_only.unsupported[0].kind, "service");
 
   const auto duplicated = parsePayload(
     R"({"subscriptions":[
@@ -247,32 +251,48 @@ TEST(SubscriptionPayloadsTest, ParseHeartbeatSkipsUnsupportedKinds)
         {"kind":"service","name":"/lidar"}
       ]})");
   ASSERT_EQ(duplicated.demands.size(), 1U);
-  ASSERT_EQ(duplicated.skipped_kinds.size(), 1U);
-  EXPECT_EQ(duplicated.skipped_kinds[0], "service");
+  ASSERT_EQ(duplicated.unsupported.size(), 2U);
+  EXPECT_EQ(duplicated.unsupported[0].kind, "service");
+  EXPECT_EQ(*duplicated.unsupported[0].name, "/battery");
+  EXPECT_EQ(duplicated.unsupported[1].kind, "service");
+  EXPECT_EQ(*duplicated.unsupported[1].name, "/lidar");
 
-  const auto none_skipped = parsePayload(R"({"subscriptions":[{"kind":"topic","name":"/battery"}]})");
-  EXPECT_TRUE(none_skipped.skipped_kinds.empty());
+  const auto deduplicated = parsePayload(
+    R"({"subscriptions":[
+        {"kind":"service","name":"/battery"},
+        {"kind":"service","name":"/battery"}
+      ]})");
+  ASSERT_EQ(deduplicated.unsupported.size(), 1U);
+  EXPECT_EQ(*deduplicated.unsupported[0].name, "/battery");
+
+  const auto none_unsupported = parsePayload(R"({"subscriptions":[{"kind":"topic","name":"/battery"}]})");
+  EXPECT_TRUE(none_unsupported.unsupported.empty());
 
   const auto missing_name = parsePayload(R"({"subscriptions":[{"kind":"service"}]})");
   EXPECT_EQ(missing_name.demands.size(), 0U);
-  ASSERT_EQ(missing_name.skipped_kinds.size(), 1U);
-  EXPECT_EQ(missing_name.skipped_kinds[0], "service");
+  ASSERT_EQ(missing_name.unsupported.size(), 1U);
+  EXPECT_EQ(missing_name.unsupported[0].kind, "service");
+  EXPECT_EQ(missing_name.unsupported[0].name, std::nullopt);
 
   const auto non_string_name = parsePayload(R"({"subscriptions":[{"kind":"service","name":123}]})");
   EXPECT_EQ(non_string_name.demands.size(), 0U);
-  ASSERT_EQ(non_string_name.skipped_kinds.size(), 1U);
-  EXPECT_EQ(non_string_name.skipped_kinds[0], "service");
+  ASSERT_EQ(non_string_name.unsupported.size(), 1U);
+  EXPECT_EQ(non_string_name.unsupported[0].kind, "service");
+  EXPECT_EQ(non_string_name.unsupported[0].name, std::nullopt);
 
   const auto invalid_preferences =
     parsePayload(R"({"subscriptions":[{"kind":"service","name":"/battery","delivery_preferences":125}]})");
   EXPECT_EQ(invalid_preferences.demands.size(), 0U);
-  ASSERT_EQ(invalid_preferences.skipped_kinds.size(), 1U);
-  EXPECT_EQ(invalid_preferences.skipped_kinds[0], "service");
+  ASSERT_EQ(invalid_preferences.unsupported.size(), 1U);
+  EXPECT_EQ(invalid_preferences.unsupported[0].kind, "service");
+  ASSERT_TRUE(invalid_preferences.unsupported[0].name.has_value());
+  EXPECT_EQ(*invalid_preferences.unsupported[0].name, "/battery");
 
   const auto padded_kind = parsePayload(R"({"subscriptions":[{"kind":"  service  ","name":"/battery"}]})");
   EXPECT_EQ(padded_kind.demands.size(), 0U);
-  ASSERT_EQ(padded_kind.skipped_kinds.size(), 1U);
-  EXPECT_EQ(padded_kind.skipped_kinds[0], "service");
+  ASSERT_EQ(padded_kind.unsupported.size(), 1U);
+  EXPECT_EQ(padded_kind.unsupported[0].kind, "service");
+  EXPECT_EQ(*padded_kind.unsupported[0].name, "/battery");
 }
 
 TEST(SubscriptionPayloadsTest, ParseHeartbeatRejectsInvalidIntervalTypes)
@@ -492,6 +512,51 @@ TEST(SubscriptionPayloadsTest, SerializeSubscriptionStatusesSerializesErrorOnlyB
           "/sources/missing",
           SubscriptionErrorReason::NotFound,
           "Unknown other video source '/sources/missing'.")},
+      },
+      std::nullopt,
+      std::nullopt),
+    expected);
+}
+
+TEST(SubscriptionPayloadsTest, SerializeSubscriptionStatusesSerializesUnsupportedKindEntries)
+{
+  nlohmann::json expected = {
+    {"v", protocol::kProtocolVersion},
+    {"type", protocol::kStatusTopic},
+    {"subscriptions", nlohmann::json::array()},
+  };
+  expected["subscriptions"].push_back({
+    {"kind", "service"},
+    {"name", "/battery"},
+    {"status", "error"},
+    {"error",
+     {{"reason", "unsupported_kind"}, {"message", "This bridge does not support subscription kind 'service'."}}},
+  });
+  // No string name sent: `name` MUST be omitted, `kind` still echoed verbatim.
+  expected["subscriptions"].push_back({
+    {"kind", "widget"},
+    {"status", "error"},
+    {"error",
+     {{"reason", "unsupported_kind"}, {"message", "This bridge does not support subscription kind 'widget'."}}},
+  });
+
+  EXPECT_EQ(
+    statusBody(
+      std::vector<SubscriptionStatusEntry>{
+        SubscriptionStatusEntry{SubscriptionErrorStatus{
+          SubscriptionTargetKind::Topic,
+          "",
+          "service",
+          std::optional<std::string>{"/battery"},
+          SubscriptionErrorReason::UnsupportedKind,
+          "This bridge does not support subscription kind 'service'."}},
+        SubscriptionStatusEntry{SubscriptionErrorStatus{
+          SubscriptionTargetKind::Topic,
+          "",
+          "widget",
+          std::nullopt,
+          SubscriptionErrorReason::UnsupportedKind,
+          "This bridge does not support subscription kind 'widget'."}},
       },
       std::nullopt,
       std::nullopt),

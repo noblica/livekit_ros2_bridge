@@ -143,19 +143,6 @@ void SubscriptionLeaseManager::handleHeartbeatPayload(
     return;
   }
 
-  if (!heartbeat->skipped_kinds.empty()) {
-    std::string joined_kinds;
-    for (const auto & kind : heartbeat->skipped_kinds) {
-      if (!joined_kinds.empty()) {
-        joined_kinds += ", ";
-      }
-      joined_kinds += kind;
-    }
-    LogEvent skipped_event(kLogger, "unsupported_heartbeat_kind_skipped");
-    skipped_event.fieldOr("requester_identity", requester_identity).field("kinds", joined_kinds);
-    skipped_event.warnThrottle(*clock_, kLogThrottle);
-  }
-
   handleHeartbeat(requester_identity, *heartbeat);
 }
 
@@ -336,13 +323,41 @@ SubscriptionStatusReport SubscriptionLeaseManager::createStatusReport(
   SubscriptionStatusReport report;
   report.session_id = heartbeat.session_id;
   report.lease_expiry = expiry;
-  report.statuses.reserve(heartbeat.demands.size());
+  report.statuses.reserve(heartbeat.demands.size() + heartbeat.unsupported.size());
 
+  for (const auto & unsupported : heartbeat.unsupported) {
+    appendUnsupportedStatus(report, requester_identity, unsupported);
+  }
   for (const auto & demand : heartbeat.demands) {
     appendDemandStatus(report, requester_identity, demand, expiry);
   }
 
   return report;
+}
+
+void SubscriptionLeaseManager::appendUnsupportedStatus(
+  SubscriptionStatusReport & report,
+  const std::string & requester_identity,
+  const UnsupportedSubscription & unsupported)
+{
+  // The entry is answered on the client-visible status channel; the bridge-side log is
+  // derived from the same data so the operator view can never diverge from what the
+  // client was told.
+  LogEvent(kLogger, "unsupported_heartbeat_kind")
+    .field("kind", unsupported.kind)
+    .fieldOr("name", unsupported.name, "<absent>")
+    .fieldOr("requester_identity", requester_identity)
+    .warnThrottle(*clock_, kLogThrottle);
+
+  report.statuses.emplace_back(
+    SubscriptionErrorStatus{
+      SubscriptionTargetKind::Topic,
+      "",
+      unsupported.kind,
+      unsupported.name,
+      SubscriptionErrorReason::UnsupportedKind,
+      "This bridge does not support subscription kind '" + unsupported.kind + "'.",
+    });
 }
 
 void SubscriptionLeaseManager::appendDemandStatus(
@@ -357,6 +372,8 @@ void SubscriptionLeaseManager::appendDemandStatus(
       SubscriptionErrorStatus{
         demand.kind,
         demand.name,
+        "",
+        std::nullopt,
         SubscriptionErrorReason::Forbidden,
         "ROS topic '" + demand.name + "' not permitted.",
       });
@@ -375,6 +392,8 @@ void SubscriptionLeaseManager::appendDemandStatus(
       SubscriptionErrorStatus{
         demand.kind,
         demand.name,
+        "",
+        std::nullopt,
         SubscriptionErrorReason::NotFound,
         exc.what(),
       });
