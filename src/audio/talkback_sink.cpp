@@ -33,15 +33,18 @@ const auto kLogger = rclcpp::get_logger("livekit_ros2_bridge.talkback_sink");
 constexpr auto kRestartDelay = std::chrono::milliseconds(250);
 constexpr char kAppSrcName[] = "bridge_talkback_src";
 
-// Mirrors the publish tail's philosophy (bridge owns the edge, leaky queue,
-// newest-audio-wins); the output device's own buffering paces playback, so the
-// configured fragment is used verbatim after the convert/resample stages.
+// Receive tail: the bridge owns the edge and the output device's own buffering
+// paces playback, so the configured fragment is used verbatim after the
+// convert/resample stages. Unlike the publish tail, this queue must not leak —
+// newest-wins would delete audio the operator is about to hear. The AudioStream
+// ring buffer upstream already provides newest-wins, so the queue here is
+// generous and lossless; the sink's jitter buffer absorbs the rest.
 std::string buildSinkPipelineDescription(const std::string & sink_fragment)
 {
   std::string description = "appsrc name=";
   description += kAppSrcName;
   description += " is-live=true block=false format=time do-timestamp=false";
-  description += " ! queue max-size-time=100000000 leaky=downstream";
+  description += " ! queue max-size-buffers=0 max-size-bytes=0 max-size-time=2000000000";
   description += " ! audioconvert";
   description += " ! audioresample";
   description += " ! ";
@@ -145,8 +148,8 @@ void TalkbackSink::push(std::uint64_t reader_id, const std::int16_t * samples, s
   GST_BUFFER_DTS(buffer.get()) = pts;
   GST_BUFFER_DURATION(buffer.get()) = duration;
 
-  // Failure must not tear anything down — the queue is leaky and appsrc is
-  // block=false, so the next push simply reclaims the pipeline.
+  // Failure must not tear anything down — appsrc is block=false, so the next
+  // push simply reclaims the pipeline.
   const GstFlowReturn result = gst_app_src_push_buffer(GST_APP_SRC(appsrc_element_.get()), buffer.release());
   if (result != GST_FLOW_OK) {
     LogEvent(kLogger, "talkback_sink_push_failed")

@@ -33,9 +33,12 @@
 namespace livekit_ros2_bridge::audio
 {
 
-// Plays received Talkback PCM through appsrc → queue (leaky) → audioconvert →
-// audioresample → the configured sink fragment. The pipeline is created lazily
-// because appsrc caps come from the first frame's actual rate/channels.
+// Plays received Talkback PCM through appsrc → queue (generous, non-leaky) →
+// audioconvert → audioresample → the configured sink fragment. The queue must
+// not drop: the AudioStream ring buffer upstream already does newest-wins, and
+// deleting audio here would remove sound the operator is about to hear. The
+// pipeline is created lazily because appsrc caps come from the first frame's
+// actual rate/channels.
 //
 // Ownership: refcounted; each TalkbackManager reader thread captures it by
 // copy, so the sink may outlive a single reader. ~TalkbackSink stops the
@@ -65,10 +68,10 @@ public:
   bool bind(std::uint64_t reader_id, int sample_rate, int num_channels);
 
   // Pushes one interleaved S16 frame. Non-owner frames are logged once and
-  // dropped. Push failures are logged and dropped — never tear down (queue is
-  // leaky, appsrc is block=false). While the pipeline is down, the caller's
-  // live frame cadence re-arms the rate-bounded restart loop; nothing restarts
-  // while no frames arrive.
+  // dropped. Push failures are logged and dropped — never tear down (appsrc is
+  // block=false). While the pipeline is down, the caller's live frame cadence
+  // re-arms the rate-bounded restart loop; nothing restarts while no frames
+  // arrive.
   void push(std::uint64_t reader_id, const std::int16_t * samples, std::size_t count);
 
   // Releases the claim on reader finalize so the next operator track can claim
