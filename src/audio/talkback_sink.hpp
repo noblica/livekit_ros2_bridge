@@ -49,6 +49,19 @@ struct TalkbackBufferTiming
 TalkbackBufferTiming computeTalkbackBufferTiming(
   std::size_t sample_count, int channels, int sample_rate, GstClockTime next_pts);
 
+// Abstract playback edge used by TalkbackManager so its reader-handover and
+// shutdown logic can be driven with a fake sink in tests. The concrete
+// TalkbackSink below is the production implementation.
+class TalkbackSinkInterface
+{
+public:
+  virtual ~TalkbackSinkInterface() = default;
+  virtual bool bind(std::uint64_t reader_id, int sample_rate, int num_channels) = 0;
+  virtual void push(std::uint64_t reader_id, const std::int16_t * samples, std::size_t count) = 0;
+  virtual void unbind(std::uint64_t reader_id) = 0;
+  virtual void stop() = 0;
+};
+
 // Plays received Talkback PCM through appsrc → queue (generous, non-leaky) →
 // audioconvert → audioresample → the configured sink fragment. The queue must
 // not drop: the AudioStream ring buffer upstream already does newest-wins, and
@@ -64,11 +77,11 @@ TalkbackBufferTiming computeTalkbackBufferTiming(
 // GStreamer bus threads. A single reader owns the sink at a time (atomic CAS on
 // a reader id); frames from other readers are logged once and dropped, so a
 // second live operator track can never steal the speaker from the active one.
-class TalkbackSink
+class TalkbackSink : public TalkbackSinkInterface
 {
 public:
   explicit TalkbackSink(std::string sink_fragment);
-  ~TalkbackSink();
+  ~TalkbackSink() override;
 
   TalkbackSink(const TalkbackSink &) = delete;
   TalkbackSink & operator=(const TalkbackSink &) = delete;
@@ -81,7 +94,7 @@ public:
   // sink; a failed initial pipeline start still reports the claim, because the
   // owning reader's live frame cadence drives the restart loop until the device
   // returns.
-  bool bind(std::uint64_t reader_id, int sample_rate, int num_channels);
+  bool bind(std::uint64_t reader_id, int sample_rate, int num_channels) override;
 
   // Pushes one interleaved S16 frame. Non-owner frames are logged once and
   // dropped. Push failures are logged and dropped — never tear down (appsrc is
@@ -89,15 +102,15 @@ public:
   // re-arms the rate-bounded restart loop; nothing restarts while no frames
   // arrive. This cadence re-arm is a deliberate, documented divergence from the
   // POC's "use a timer" recommendation (see talkback_sink.cpp push()).
-  void push(std::uint64_t reader_id, const std::int16_t * samples, std::size_t count);
+  void push(std::uint64_t reader_id, const std::int16_t * samples, std::size_t count) override;
 
   // Releases the claim on reader finalize so the next operator track can claim
   // on its first frame (lease-handover rebind, with no bridge-side identity
   // knowledge). No-op when this reader did not own the sink.
-  void unbind(std::uint64_t reader_id);
+  void unbind(std::uint64_t reader_id) override;
 
   // Stops the pipeline and disables restarts. Idempotent.
-  void stop();
+  void stop() override;
 
   // True while the playback pipeline is PLAYING. Lock-free, so callers can
   // observe lifecycle without contending on mutex_.

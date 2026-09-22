@@ -103,13 +103,15 @@ RoomEventCallbacks Runtime::makeRoomCallbacks()
   callbacks.on_state_changed = [this](livekit::ConnectionState state) {
     (void)callback_gate_.run([this, state]() {
       // A reconnected room replaces the SDK's media session: track events from
-      // the old session are stale. Bump the talkback generation, stop its
-      // readers, and re-subscribe the operator track from the new snapshot.
-      if (
-        talkback_manager_ != nullptr &&
-        (state == livekit::ConnectionState::Connected || state == livekit::ConnectionState::Reconnecting))
-      {
-        talkback_manager_->onRoomGenerationChanged();
+      // the old session are stale. Reconnecting tears the talkback readers down
+      // without subscribing; Connected re-subscribes the operator track from
+      // the fresh snapshot.
+      if (talkback_manager_ != nullptr) {
+        if (state == livekit::ConnectionState::Connected) {
+          talkback_manager_->onConnected();
+        } else if (state == livekit::ConnectionState::Reconnecting) {
+          talkback_manager_->onReconnecting();
+        }
       }
       watchdog_.onStateChanged(state);
     });
