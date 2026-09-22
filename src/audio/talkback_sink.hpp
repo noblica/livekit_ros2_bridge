@@ -71,7 +71,8 @@ public:
   // dropped. Push failures are logged and dropped — never tear down (appsrc is
   // block=false). While the pipeline is down, the caller's live frame cadence
   // re-arms the rate-bounded restart loop; nothing restarts while no frames
-  // arrive.
+  // arrive. This cadence re-arm is a deliberate, documented divergence from the
+  // POC's "use a timer" recommendation (see talkback_sink.cpp push()).
   void push(std::uint64_t reader_id, const std::int16_t * samples, std::size_t count);
 
   // Releases the claim on reader finalize so the next operator track can claim

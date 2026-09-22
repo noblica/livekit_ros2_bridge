@@ -110,6 +110,15 @@ void TalkbackSink::push(std::uint64_t reader_id, const std::int16_t * samples, s
   // Re-arm the restart loop: while the pipeline is down, the reader's 10 ms
   // push cadence retries schedule() until the handler accepts it. Lock-free
   // (see pipeline_active_ note in the header).
+  //
+  // Deliberate divergence from the POC's "production should re-arm via a timer,
+  // not the audio cadence" (operator-talkback-poc-results.md §7 correction #4).
+  // The cadence is the right driver here: restarting only matters while frames
+  // are arriving, and a dead device with no publisher should not cycle at all.
+  // A timer would need a frame-independent lifecycle this sink does not have;
+  // re-arming from the one thread that owns the pipeline is simpler and keeps
+  // idle bridges silent. The bus-error-driven loop still cannot self-rearm (its
+  // own error coalesces), so this push path is required, not incidental.
   if (!pipeline_active_.load(std::memory_order_acquire)) {
     (void)failure_handler_.schedule();
     return;
