@@ -631,11 +631,45 @@ TEST_F(RuntimeConfigTest, TalkbackDefaultsToDisabled)
 TEST_F(RuntimeConfigTest, TalkbackLoadsAndTrimsSinkFragment)
 {
   auto options = makeStaticTokenOptions();
-  options.append_parameter_override("audio.sink", "  alsasink device=hw:0,0  ");
+  options.append_parameter_override("audio.sink", "  fakesink sync=false  ");
 
   const RuntimeConfig config = loadRuntimeConfigForNode("startup_config_talkback_sink", options);
 
-  EXPECT_EQ(config.talkback.sink_fragment, "alsasink device=hw:0,0");
+  EXPECT_EQ(config.talkback.sink_fragment, "fakesink sync=false");
+}
+
+TEST_F(RuntimeConfigTest, TalkbackRejectsUserAppsrcFragment)
+{
+  auto options = makeStaticTokenOptions();
+  options.append_parameter_override("audio.sink", "appsrc ! fakesink");
+
+  expectConfigErrorContains("startup_config_talkback_user_appsrc", options, "appsrc/appsink");
+}
+
+TEST_F(RuntimeConfigTest, TalkbackRejectsUserAppsinkFragment)
+{
+  auto options = makeStaticTokenOptions();
+  options.append_parameter_override("audio.sink", "fakesink name=x ! appsink");
+
+  expectConfigErrorContains("startup_config_talkback_user_appsink", options, "appsrc/appsink");
+}
+
+TEST_F(RuntimeConfigTest, TalkbackRejectsInvalidFragmentSyntax)
+{
+  auto options = makeStaticTokenOptions();
+  options.append_parameter_override("audio.sink", "this is not a pipeline !!!");
+
+  expectConfigErrorContains("startup_config_talkback_invalid_syntax", options, "talkback audio.sink");
+}
+
+TEST_F(RuntimeConfigTest, TalkbackAcceptsValidSinkFragment)
+{
+  auto options = makeStaticTokenOptions();
+  options.append_parameter_override("audio.sink", "fakesink sync=false");
+
+  const RuntimeConfig config = loadRuntimeConfigForNode("startup_config_talkback_valid_sink", options);
+
+  EXPECT_EQ(config.talkback.sink_fragment, "fakesink sync=false");
 }
 
 }  // namespace livekit_ros2_bridge

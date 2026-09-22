@@ -31,7 +31,8 @@ namespace
 
 const auto kLogger = rclcpp::get_logger("livekit_ros2_bridge.talkback_sink");
 constexpr auto kRestartDelay = std::chrono::milliseconds(250);
-constexpr char kAppSrcName[] = "bridge_talkback_src";
+
+}  // namespace
 
 // Receive tail: the bridge owns the edge and the output device's own buffering
 // paces playback, so the configured fragment is used verbatim after the
@@ -39,10 +40,10 @@ constexpr char kAppSrcName[] = "bridge_talkback_src";
 // newest-wins would delete audio the operator is about to hear. The AudioStream
 // ring buffer upstream already provides newest-wins, so the queue here is
 // generous and lossless; the sink's jitter buffer absorbs the rest.
-std::string buildSinkPipelineDescription(const std::string & sink_fragment)
+std::string buildTalkbackSinkPipelineDescription(const std::string & sink_fragment)
 {
   std::string description = "appsrc name=";
-  description += kAppSrcName;
+  description += kBridgeAppSrcName;
   description += " is-live=true block=false format=time do-timestamp=false";
   description += " ! queue max-size-buffers=0 max-size-bytes=0 max-size-time=2000000000";
   description += " ! audioconvert";
@@ -51,8 +52,6 @@ std::string buildSinkPipelineDescription(const std::string & sink_fragment)
   description += sink_fragment;
   return description;
 }
-
-}  // namespace
 
 TalkbackBufferTiming computeTalkbackBufferTiming(
   std::size_t sample_count, int channels, int sample_rate, GstClockTime next_pts)
@@ -286,12 +285,13 @@ void TalkbackSink::startPipelineLocked()
     throw std::runtime_error("Talkback sink caps are not set.");
   }
 
-  utils::GstElementPtr pipeline(gst_parse_launch(buildSinkPipelineDescription(sink_fragment_).c_str(), nullptr));
+  utils::GstElementPtr pipeline(
+    gst_parse_launch(buildTalkbackSinkPipelineDescription(sink_fragment_).c_str(), nullptr));
   if (pipeline == nullptr) {
     throw std::runtime_error("Failed to create GStreamer talkback sink pipeline.");
   }
 
-  utils::GstElementPtr appsrc_element(gst_bin_get_by_name(GST_BIN(pipeline.get()), kAppSrcName));
+  utils::GstElementPtr appsrc_element(gst_bin_get_by_name(GST_BIN(pipeline.get()), kBridgeAppSrcName));
   if (appsrc_element == nullptr || !GST_IS_APP_SRC(appsrc_element.get())) {
     throw std::runtime_error("Talkback sink pipeline did not create the expected appsrc.");
   }

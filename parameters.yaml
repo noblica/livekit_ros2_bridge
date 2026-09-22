@@ -181,8 +181,9 @@ livekit_ros2_bridge:
         Free-form GStreamer sink fragment for the operator talkback playback
         pipeline (e.g. 'alsasink device=...'). Empty disables talkback entirely;
         non-empty also advertises the talkback feature via lkros.capability.
-        The bridge prepends appsrc, a leaky queue, audioconvert, and
-        audioresample, and must not contain appsrc or appsink.
+        The bridge prepends appsrc, a lossless queue (bounded at 2 s rather
+        than leaky), audioconvert, and audioresample, and must not contain
+        appsrc or appsink.
     publish:
       max_bitrate_bps:
         type: int

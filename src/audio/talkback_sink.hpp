@@ -33,6 +33,17 @@
 namespace livekit_ros2_bridge::audio
 {
 
+// Wire name of the bridge-owned appsrc in the talkback playback pipeline. The
+// startup validator reserves it so a sink fragment cannot define its own
+// endpoint.
+inline constexpr char kBridgeAppSrcName[] = "bridge_talkback_src";
+
+// Builds the playback pipeline description: the bridge-owned appsrc feeding a
+// lossless, bounded queue, then audioconvert, audioresample, and the verbatim
+// sink fragment. Shared with startup validation so the validated pipeline
+// matches the one that runs.
+std::string buildTalkbackSinkPipelineDescription(const std::string & sink_fragment);
+
 // Timing for one interleaved S16 buffer. The per-channel frame count drives the
 // duration, so a stereo buffer advances the playback clock the same wall time as
 // a mono buffer with the same number of frames. The caller threads next_pts

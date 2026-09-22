@@ -792,7 +792,7 @@ private:
     room_ = std::move(room);
 
     // Seed the known-publication set so tracks already present at connect are not re-emitted as
-    // fresh publications by the SDK null-publication workaround (onRoomGenerationChanged already
+    // fresh publications by the SDK null-publication workaround (onConnected already
     // re-subscribes them from snapshot).
     forwarded_publication_sids_.clear();
     forwarded_publication_sids_.insert(existing_publication_sids.begin(), existing_publication_sids.end());
@@ -930,7 +930,7 @@ private:
       // Only act on live publications while fully connected. The SDK rehydrates remote publications
       // mid-reconnect; subscribing then sets the publication's subscribed flag without media able to
       // flow, so the post-reconnect snapshot (which skips already-subscribed tracks) would never
-      // re-issue the request. Deferring to Connected lets onRoomGenerationChanged re-subscribe.
+      // re-issue the request. Deferring to Connected lets onConnected re-subscribe.
       if (state_ != livekit::ConnectionState::Connected) {
         return;
       }
