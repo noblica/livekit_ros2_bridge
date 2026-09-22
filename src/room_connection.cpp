@@ -24,6 +24,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -768,9 +769,33 @@ private:
 
   bool activateRoom(std::shared_ptr<livekit::Room> room)
   {
+    // Collect the connect-time publication snapshot before taking mutex_: iterating SDK-owned
+    // participants while holding our lock risks blocking on SDK internals.
+    std::vector<std::string> existing_publication_sids;
+    if (room != nullptr) {
+      for (const auto & remote_handle : room->remoteParticipants()) {
+        auto remote_participant = remote_handle.lock();
+        if (remote_participant == nullptr) {
+          continue;
+        }
+        for (const auto & [sid, publication] : remote_participant->trackPublications()) {
+          (void)publication;
+          if (!sid.empty()) {
+            existing_publication_sids.push_back(sid);
+          }
+        }
+      }
+    }
+
     std::lock_guard<std::mutex> lock(mutex_);
     ++room_generation_;
     room_ = std::move(room);
+
+    // Seed the known-publication set so tracks already present at connect are not re-emitted as
+    // fresh publications by the SDK null-publication workaround (onRoomGenerationChanged already
+    // re-subscribes them from snapshot).
+    forwarded_publication_sids_.clear();
+    forwarded_publication_sids_.insert(existing_publication_sids.begin(), existing_publication_sids.end());
 
     bool registered = true;
     for (const auto & entry : rpc_handlers_) {
@@ -792,6 +817,7 @@ private:
       }
       // Old-room tracks must not unpublish from the replacement room.
       track_room_generations_.clear();
+      forwarded_publication_sids_.clear();
       state_ = livekit::ConnectionState::Disconnected;
     }
 
@@ -816,6 +842,17 @@ private:
     if (callback) {
       callback(state);
     }
+  }
+
+  static RemoteTrackEvent makeRemoteTrackEvent(
+    std::string participant_identity, std::string track_sid, std::string track_name, livekit::TrackKind track_kind)
+  {
+    RemoteTrackEvent remote_event;
+    remote_event.participant_identity = std::move(participant_identity);
+    remote_event.track_sid = std::move(track_sid);
+    remote_event.track_name = std::move(track_name);
+    remote_event.track_kind = track_kind;
+    return remote_event;
   }
 
   template <typename EventT>
@@ -882,11 +919,64 @@ private:
 
   void onTrackPublished(livekit::Room &, const livekit::TrackPublishedEvent & event) override
   {
-    forwardRemoteTrackEvent(callbacks_.on_remote_track_published, event, nullptr);
+    if (event.participant == nullptr) {
+      return;
+    }
+
+    std::vector<RemoteTrackEvent> events;
+    std::function<void(const RemoteTrackEvent &)> callback;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      // Only act on live publications while fully connected. The SDK rehydrates remote publications
+      // mid-reconnect; subscribing then sets the publication's subscribed flag without media able to
+      // flow, so the post-reconnect snapshot (which skips already-subscribed tracks) would never
+      // re-issue the request. Deferring to Connected lets onRoomGenerationChanged re-subscribe.
+      if (state_ != livekit::ConnectionState::Connected) {
+        return;
+      }
+      callback = callbacks_.on_remote_track_published;
+      if (callback == nullptr) {
+        return;
+      }
+
+      if (event.publication != nullptr && !event.publication->sid().empty()) {
+        forwarded_publication_sids_.insert(event.publication->sid());
+        events.push_back(makeRemoteTrackEvent(
+          event.participant->identity(),
+          event.publication->sid(),
+          event.publication->name(),
+          event.publication->kind()));
+      } else {
+        // livekit/client-sdk-cpp v1.6.0 room.cpp kTrackPublished move()s the publication into the
+        // participant's map and then assigns the moved-from (null) shared_ptr to event.publication,
+        // so the event carries no sid or name. The hydrated publication is already stored on the
+        // participant, so recover every publication this identity has not forwarded yet. This
+        // deliberately leaks no track names into the connection layer: the manager still applies
+        // the exact-name gate.
+        for (const auto & [sid, publication] : event.participant->trackPublications()) {
+          if (publication == nullptr || sid.empty()) {
+            continue;
+          }
+          if (!forwarded_publication_sids_.insert(sid).second) {
+            continue;
+          }
+          events.push_back(makeRemoteTrackEvent(
+            event.participant->identity(), publication->sid(), publication->name(), publication->kind()));
+        }
+      }
+    }
+
+    for (const auto & remote_event : events) {
+      callback(remote_event);
+    }
   }
 
   void onTrackUnpublished(livekit::Room &, const livekit::TrackUnpublishedEvent & event) override
   {
+    if (event.publication != nullptr && !event.publication->sid().empty()) {
+      std::lock_guard<std::mutex> lock(mutex_);
+      forwarded_publication_sids_.erase(event.publication->sid());
+    }
     forwardRemoteTrackEvent(callbacks_.on_remote_track_unpublished, event, nullptr);
   }
 
@@ -1014,6 +1104,10 @@ private:
   std::unordered_map<const livekit::LocalVideoTrack *, std::uint64_t> track_room_generations_;
   // Guards audio unpublish against tracks published by an older room.
   std::unordered_map<const livekit::LocalAudioTrack *, std::uint64_t> audio_track_room_generations_;
+  // Sids of remote publications already forwarded as published events. Lets the null-publication
+  // workaround recover the newly published track without re-emitting tracks that were present when
+  // the room connected. Guarded by mutex_.
+  std::unordered_set<std::string> forwarded_publication_sids_;
 
   bool stop_requested_ = false;
   bool sdk_initialized_ = false;
