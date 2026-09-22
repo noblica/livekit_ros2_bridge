@@ -99,6 +99,40 @@ TEST(LogEventTest, UsesFallbacksForOptionalFieldInputs)
     "event=sample_event missing_count=<missing> present_count=7 empty_name=<missing> present_name=ready");
 }
 
+TEST(LogEventTest, FieldQuotedEscapesClientControlledStrings)
+{
+  const std::string hostile = "a b=c\nd \"quoted\" \\ back\ttab";
+  EXPECT_EQ(
+    LogEvent(rclcpp::get_logger("log_event_test"), "sample_event")
+      .fieldQuoted("value", hostile)
+      .fieldQuoted("empty", std::string{})
+      .fieldQuoted("plain", "ok")
+      .str(),
+    "event=sample_event value=\"a b=c\\nd \\\"quoted\\\" \\\\ back\\ttab\" empty=\"\" plain=\"ok\"");
+}
+
+TEST(LogEventTest, FieldQuotedEscapesControlCharacters)
+{
+  EXPECT_EQ(
+    LogEvent(rclcpp::get_logger("log_event_test"), "sample_event").fieldQuoted("value", std::string("a\x01b")).str(),
+    "event=sample_event value=\"a\\x1b\"");
+}
+
+TEST(LogEventTest, FieldOrQuotedKeepsEmptyStringDistinctFromMissing)
+{
+  const std::optional<std::string> missing_name;
+  const std::optional<std::string> empty_name = std::string{};
+  const std::optional<std::string> hostile_name = std::string{"x y=z"};
+
+  EXPECT_EQ(
+    LogEvent(rclcpp::get_logger("log_event_test"), "sample_event")
+      .fieldOrQuoted("missing", missing_name, "<absent>")
+      .fieldOrQuoted("empty", empty_name, "<absent>")
+      .fieldOrQuoted("hostile", hostile_name, "<absent>")
+      .str(),
+    "event=sample_event missing=<absent> empty=\"\" hostile=\"x y=z\"");
+}
+
 TEST(LogEventTest, UsesMagicEnumNamesForEnumFields)
 {
   const std::optional<SampleLogEnum> missing_value;

@@ -87,7 +87,7 @@ SubscriptionStatus makeStatus(
 SubscriptionErrorStatus makeErrorStatus(
   SubscriptionTargetKind kind, std::string name, SubscriptionErrorReason reason, std::string message)
 {
-  return {kind, std::move(name), reason, std::move(message)};
+  return {kind, std::move(name), "", std::nullopt, reason, std::move(message)};
 }
 
 nlohmann::json statusBody(
@@ -215,9 +215,110 @@ TEST(SubscriptionPayloadsTest, ParseHeartbeatRejectsBlankOrUnsupportedTargets)
     "heartbeat subscription other source name must trim to a non-empty name",
     "subscriptions.name");
   expectParseError(
-    nlohmann::json::parse(R"({"subscriptions":[{"kind":"service","name":"/battery"}]})"),
-    "heartbeat subscription 'kind' must be 'topic', 'other_video', or 'other_audio'",
+    nlohmann::json::parse(R"({"subscriptions":[{"kind":"   ","name":"/battery"}]})"),
+    "heartbeat subscription 'kind' must be a non-empty value",
     "subscriptions.kind");
+}
+
+TEST(SubscriptionPayloadsTest, ParseHeartbeatRecordsUnsupportedKinds)
+{
+  const auto mixed = parsePayload(
+    R"({"subscriptions":[
+        {"kind":"service","name":"/battery"},
+        {"kind":"topic","name":"/battery_state"},
+        {"kind":"widget","name":"gadget"}
+      ]})");
+  ASSERT_EQ(mixed.demands.size(), 1U);
+  EXPECT_EQ(mixed.demands[0].kind, SubscriptionTargetKind::Topic);
+  EXPECT_EQ(mixed.demands[0].name, expandHeartbeatTopicName("/battery_state"));
+  ASSERT_EQ(mixed.unsupported.size(), 2U);
+  EXPECT_EQ(mixed.unsupported[0].kind, "service");
+  ASSERT_TRUE(mixed.unsupported[0].name.has_value());
+  EXPECT_EQ(*mixed.unsupported[0].name, "/battery");
+  EXPECT_EQ(mixed.unsupported[1].kind, "widget");
+  ASSERT_TRUE(mixed.unsupported[1].name.has_value());
+  EXPECT_EQ(*mixed.unsupported[1].name, "gadget");
+
+  const auto unknown_only = parsePayload(R"({"subscriptions":[{"kind":"service","name":"/battery"}]})");
+  EXPECT_EQ(unknown_only.demands.size(), 0U);
+  ASSERT_EQ(unknown_only.unsupported.size(), 1U);
+  EXPECT_EQ(unknown_only.unsupported[0].kind, "service");
+
+  const auto duplicated = parsePayload(
+    R"({"subscriptions":[
+        {"kind":"topic","name":"/battery"},
+        {"kind":"service","name":"/battery"},
+        {"kind":"service","name":"/lidar"}
+      ]})");
+  ASSERT_EQ(duplicated.demands.size(), 1U);
+  ASSERT_EQ(duplicated.unsupported.size(), 2U);
+  EXPECT_EQ(duplicated.unsupported[0].kind, "service");
+  EXPECT_EQ(*duplicated.unsupported[0].name, "/battery");
+  EXPECT_EQ(duplicated.unsupported[1].kind, "service");
+  EXPECT_EQ(*duplicated.unsupported[1].name, "/lidar");
+
+  const auto deduplicated = parsePayload(
+    R"({"subscriptions":[
+        {"kind":"service","name":"/battery"},
+        {"kind":"service","name":"/battery"}
+      ]})");
+  ASSERT_EQ(deduplicated.unsupported.size(), 1U);
+  EXPECT_EQ(*deduplicated.unsupported[0].name, "/battery");
+
+  const auto none_unsupported = parsePayload(R"({"subscriptions":[{"kind":"topic","name":"/battery"}]})");
+  EXPECT_TRUE(none_unsupported.unsupported.empty());
+
+  const auto missing_name = parsePayload(R"({"subscriptions":[{"kind":"service"}]})");
+  EXPECT_EQ(missing_name.demands.size(), 0U);
+  ASSERT_EQ(missing_name.unsupported.size(), 1U);
+  EXPECT_EQ(missing_name.unsupported[0].kind, "service");
+  EXPECT_EQ(missing_name.unsupported[0].name, std::nullopt);
+
+  const auto non_string_name = parsePayload(R"({"subscriptions":[{"kind":"service","name":123}]})");
+  EXPECT_EQ(non_string_name.demands.size(), 0U);
+  ASSERT_EQ(non_string_name.unsupported.size(), 1U);
+  EXPECT_EQ(non_string_name.unsupported[0].kind, "service");
+  EXPECT_EQ(non_string_name.unsupported[0].name, std::nullopt);
+
+  const auto invalid_preferences =
+    parsePayload(R"({"subscriptions":[{"kind":"service","name":"/battery","delivery_preferences":125}]})");
+  EXPECT_EQ(invalid_preferences.demands.size(), 0U);
+  ASSERT_EQ(invalid_preferences.unsupported.size(), 1U);
+  EXPECT_EQ(invalid_preferences.unsupported[0].kind, "service");
+  ASSERT_TRUE(invalid_preferences.unsupported[0].name.has_value());
+  EXPECT_EQ(*invalid_preferences.unsupported[0].name, "/battery");
+
+  // `kind` is echoed verbatim, including surrounding whitespace; trim is validation-only.
+  const auto padded_kind = parsePayload(R"({"subscriptions":[{"kind":"  service  ","name":"/battery"}]})");
+  EXPECT_EQ(padded_kind.demands.size(), 0U);
+  ASSERT_EQ(padded_kind.unsupported.size(), 1U);
+  EXPECT_EQ(padded_kind.unsupported[0].kind, "  service  ");
+  EXPECT_EQ(*padded_kind.unsupported[0].name, "/battery");
+
+  // An absent `name` and an empty-string `name` are distinct identities, so both are answered.
+  const auto absent_vs_empty_name = parsePayload(
+    R"({"subscriptions":[
+        {"kind":"service"},
+        {"kind":"service","name":""}
+      ]})");
+  EXPECT_EQ(absent_vs_empty_name.demands.size(), 0U);
+  ASSERT_EQ(absent_vs_empty_name.unsupported.size(), 2U);
+  EXPECT_EQ(absent_vs_empty_name.unsupported[0].name, std::nullopt);
+  ASSERT_TRUE(absent_vs_empty_name.unsupported[1].name.has_value());
+  EXPECT_EQ(*absent_vs_empty_name.unsupported[1].name, "");
+
+  // Kinds and names containing ':' must not collide with each other's fields.
+  const auto colon_kinds = parsePayload(
+    R"({"subscriptions":[
+        {"kind":"a:b","name":"x"},
+        {"kind":"a","name":"b:x"}
+      ]})");
+  EXPECT_EQ(colon_kinds.demands.size(), 0U);
+  ASSERT_EQ(colon_kinds.unsupported.size(), 2U);
+  EXPECT_EQ(colon_kinds.unsupported[0].kind, "a:b");
+  EXPECT_EQ(*colon_kinds.unsupported[0].name, "x");
+  EXPECT_EQ(colon_kinds.unsupported[1].kind, "a");
+  EXPECT_EQ(*colon_kinds.unsupported[1].name, "b:x");
 }
 
 TEST(SubscriptionPayloadsTest, ParseHeartbeatRejectsInvalidIntervalTypes)
@@ -437,6 +538,51 @@ TEST(SubscriptionPayloadsTest, SerializeSubscriptionStatusesSerializesErrorOnlyB
           "/sources/missing",
           SubscriptionErrorReason::NotFound,
           "Unknown other video source '/sources/missing'.")},
+      },
+      std::nullopt,
+      std::nullopt),
+    expected);
+}
+
+TEST(SubscriptionPayloadsTest, SerializeSubscriptionStatusesSerializesUnsupportedKindEntries)
+{
+  nlohmann::json expected = {
+    {"v", protocol::kProtocolVersion},
+    {"type", protocol::kStatusTopic},
+    {"subscriptions", nlohmann::json::array()},
+  };
+  expected["subscriptions"].push_back({
+    {"kind", "service"},
+    {"name", "/battery"},
+    {"status", "error"},
+    {"error",
+     {{"reason", "unsupported_kind"}, {"message", "This bridge does not support subscription kind 'service'."}}},
+  });
+  // No string name sent: `name` MUST be omitted, `kind` still echoed verbatim.
+  expected["subscriptions"].push_back({
+    {"kind", "widget"},
+    {"status", "error"},
+    {"error",
+     {{"reason", "unsupported_kind"}, {"message", "This bridge does not support subscription kind 'widget'."}}},
+  });
+
+  EXPECT_EQ(
+    statusBody(
+      std::vector<SubscriptionStatusEntry>{
+        SubscriptionStatusEntry{SubscriptionErrorStatus{
+          SubscriptionTargetKind::Topic,
+          "",
+          "service",
+          std::optional<std::string>{"/battery"},
+          SubscriptionErrorReason::UnsupportedKind,
+          "This bridge does not support subscription kind 'service'."}},
+        SubscriptionStatusEntry{SubscriptionErrorStatus{
+          SubscriptionTargetKind::Topic,
+          "",
+          "widget",
+          std::nullopt,
+          SubscriptionErrorReason::UnsupportedKind,
+          "This bridge does not support subscription kind 'widget'."}},
       },
       std::nullopt,
       std::nullopt),

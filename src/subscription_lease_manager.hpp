@@ -164,6 +164,7 @@ private:
   Subscriptions subscriptions_;
 
   EventThrottle conflict_throttle_{kLogThrottle};
+  EventThrottle unsupported_kind_throttle_{kLogThrottle};
 
   void handleHeartbeat(const std::string & requester_identity, const SubscriptionHeartbeat & heartbeat);
   std::optional<std::string> resolveIdentity(
@@ -190,6 +191,10 @@ private:
     const std::string & requester_identity,
     const SubscriptionDemand & demand,
     Clock::time_point expiry);
+  void appendUnsupportedStatus(
+    SubscriptionStatusReport & report,
+    const std::string & requester_identity,
+    const UnsupportedSubscription & unsupported);
   void publishStatusReport(
     const std::string & requester_identity,
     const std::optional<std::string> & session_id,

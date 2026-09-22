@@ -323,13 +323,44 @@ SubscriptionStatusReport SubscriptionLeaseManager::createStatusReport(
   SubscriptionStatusReport report;
   report.session_id = heartbeat.session_id;
   report.lease_expiry = expiry;
-  report.statuses.reserve(heartbeat.demands.size());
+  report.statuses.reserve(heartbeat.demands.size() + heartbeat.unsupported.size());
 
   for (const auto & demand : heartbeat.demands) {
     appendDemandStatus(report, requester_identity, demand, expiry);
   }
+  for (const auto & unsupported : heartbeat.unsupported) {
+    appendUnsupportedStatus(report, requester_identity, unsupported);
+  }
 
   return report;
+}
+
+void SubscriptionLeaseManager::appendUnsupportedStatus(
+  SubscriptionStatusReport & report,
+  const std::string & requester_identity,
+  const UnsupportedSubscription & unsupported)
+{
+  // The entry is answered on the client-visible status channel; the bridge-side log is
+  // derived from the same data so the operator view can never diverge from what the
+  // client was told. Kind and name are raw client strings, so they are quoted and escaped.
+  if (const std::size_t pending = unsupported_kind_throttle_.record(); pending > 0U) {
+    LogEvent(kLogger, "unsupported_heartbeat_kind")
+      .fieldQuoted("kind", unsupported.kind)
+      .fieldOrQuoted("name", unsupported.name, "<absent>")
+      .field("requester_identity", requester_identity)
+      .fieldIf(pending > 1U, "count", pending)
+      .warn();
+  }
+
+  report.statuses.emplace_back(
+    SubscriptionErrorStatus{
+      SubscriptionTargetKind::Topic,
+      "",
+      unsupported.kind,
+      unsupported.name,
+      SubscriptionErrorReason::UnsupportedKind,
+      "This bridge does not support subscription kind '" + unsupported.kind + "'.",
+    });
 }
 
 void SubscriptionLeaseManager::appendDemandStatus(
@@ -344,6 +375,8 @@ void SubscriptionLeaseManager::appendDemandStatus(
       SubscriptionErrorStatus{
         demand.kind,
         demand.name,
+        "",
+        std::nullopt,
         SubscriptionErrorReason::Forbidden,
         "ROS topic '" + demand.name + "' not permitted.",
       });
@@ -362,6 +395,8 @@ void SubscriptionLeaseManager::appendDemandStatus(
       SubscriptionErrorStatus{
         demand.kind,
         demand.name,
+        "",
+        std::nullopt,
         SubscriptionErrorReason::NotFound,
         exc.what(),
       });

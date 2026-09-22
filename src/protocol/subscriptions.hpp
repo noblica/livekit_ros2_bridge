@@ -37,11 +37,23 @@ struct SubscriptionDemand
   std::optional<int> preferred_interval_ms;
 };
 
+// A heartbeat entry whose `kind` this bridge does not recognize. The raw kind is
+// echoed verbatim so the client can correlate the entry with its own request; the
+// name is echoed only when the client sent a string, since an unknown kind's name
+// semantics cannot be assumed.
+struct UnsupportedSubscription
+{
+  std::string kind;
+  std::optional<std::string> name;
+};
+
 struct SubscriptionHeartbeat
 {
   // Normalized client-session identifier; absent for missing, null, or blank wire values.
   std::optional<std::string> session_id;
   std::vector<SubscriptionDemand> demands;
+  // Unrecognized-kind entries, deduplicated by (raw kind, name) in first-seen order.
+  std::vector<UnsupportedSubscription> unsupported;
 };
 
 enum class SubscriptionDeliveryKind
@@ -76,12 +88,22 @@ enum class SubscriptionErrorReason
 {
   Forbidden,
   NotFound,
+  UnsupportedKind,
 };
 
+// Error statuses echo the request's `kind` and `name` back to the client. Recognized
+// kinds carry their enum and resolved name, serialized through the standard wire
+// mapping; `UnsupportedKind` carries the client's raw kind string verbatim and echoes
+// the name only when the client sent one.
 struct SubscriptionErrorStatus
 {
   SubscriptionTargetKind kind = SubscriptionTargetKind::Topic;
   std::string name;
+  // Raw wire `kind` for `UnsupportedKind`; empty for recognized kinds.
+  std::string raw_kind;
+  // Raw wire `name` echoed verbatim for `UnsupportedKind`; nullopt when the client sent
+  // no string name (or the entry has a recognized kind).
+  std::optional<std::string> raw_name;
   SubscriptionErrorReason reason = SubscriptionErrorReason::NotFound;
   std::string message;
 };

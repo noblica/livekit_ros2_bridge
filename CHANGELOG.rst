@@ -6,6 +6,10 @@ Changelog for package livekit_ros2_bridge
 ------------------
 * Add the `lkros.capability` RPC for bridge feature discovery, answerable by any room participant
   without caller identity or access-policy checks.
+* Answer heartbeat entries with unrecognized subscription kinds via an `unsupported_kind` error
+  entry on `lkros.status` instead of skipping them silently, so clients can observe and correct
+  the mismatch. The entry's `kind` and `name` are echoed but never validated; other fields are
+  ignored, and blank kinds still reject the heartbeat.
 
 0.3.0 (Unreleased)
 ------------------

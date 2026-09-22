@@ -41,6 +41,8 @@ constexpr std::string_view kUnknownFieldValue = "<unknown>";
 constexpr std::string_view kUnknownExceptionValue = "unknown_exception";
 
 // Builds event=<name> plus ordered key=value fields; keys and values must be log-parser-safe.
+// Client-controlled string values must go through fieldQuoted, which quotes and escapes them
+// so they cannot break key=value parsing or inject additional log lines.
 class LogEvent
 {
 public:
@@ -78,6 +80,48 @@ public:
   LogEvent && field(std::string_view key, const char * value) &&
   {
     static_cast<LogEvent &>(*this).field(key, value);
+    return std::move(*this);
+  }
+
+  // Quotes and escapes a string value so key=value log parsing stays intact regardless of
+  // the string's contents. Use for any value built from client-controlled input.
+  LogEvent & fieldQuoted(std::string_view key, std::string_view value) &
+  {
+    message_ << " " << key << "=\"";
+    for (const char character : value) {
+      switch (character) {
+        case '\\':
+          message_ << "\\\\";
+          break;
+        case '"':
+          message_ << "\\\"";
+          break;
+        case '\n':
+          message_ << "\\n";
+          break;
+        case '\r':
+          message_ << "\\r";
+          break;
+        case '\t':
+          message_ << "\\t";
+          break;
+        default:
+          if (static_cast<unsigned char>(character) < 0x20U) {
+            // Other control characters would corrupt single-line log parsing.
+            message_ << "\\x" << std::hex << static_cast<int>(character) << std::dec;
+          } else {
+            message_ << character;
+          }
+          break;
+      }
+    }
+    message_ << "\"";
+    return *this;
+  }
+
+  LogEvent && fieldQuoted(std::string_view key, std::string_view value) &&
+  {
+    static_cast<LogEvent &>(*this).fieldQuoted(key, value);
     return std::move(*this);
   }
 
@@ -213,6 +257,25 @@ public:
     std::string_view key, const std::optional<T> & value, std::string_view fallback = kUnknownFieldValue) &&
   {
     static_cast<LogEvent &>(*this).fieldOr(key, value, fallback);
+    return std::move(*this);
+  }
+
+  // Quoting variants of fieldOr: a present optional always renders its value (even empty,
+  // as `""`), so the log can never diverge from what the client was told.
+  LogEvent & fieldOrQuoted(
+    std::string_view key, const std::optional<std::string> & value, std::string_view fallback = kUnknownFieldValue) &
+  {
+    if (value.has_value()) {
+      return fieldQuoted(key, *value);
+    }
+    message_ << " " << key << "=" << fallback;
+    return *this;
+  }
+
+  LogEvent && fieldOrQuoted(
+    std::string_view key, const std::optional<std::string> & value, std::string_view fallback = kUnknownFieldValue) &&
+  {
+    static_cast<LogEvent &>(*this).fieldOrQuoted(key, value, fallback);
     return std::move(*this);
   }
 

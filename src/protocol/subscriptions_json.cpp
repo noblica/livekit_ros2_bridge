@@ -19,6 +19,7 @@
 #include <exception>
 #include <limits>
 #include <optional>
+#include <set>
 #include <stdexcept>
 #include <unordered_map>
 #include <utility>
@@ -114,14 +115,23 @@ std::optional<int> parseIntervalMs(const nlohmann::json & entry)
   return ms;
 }
 
-void parseTarget(const nlohmann::json & entry, SubscriptionDemand & demand)
+// Parses one subscription entry into `demand`. Returns false when the entry's
+// `kind` is unrecognized; the caller records the entry as unsupported and keeps
+// processing the rest of the heartbeat instead of rejecting it. An unrecognized
+// entry's remaining fields are echoed but never validated, since the naming rules
+// of an unknown kind cannot be assumed. All other validation failures still throw.
+bool parseTarget(const nlohmann::json & entry, SubscriptionDemand & demand, UnsupportedSubscription & unsupported)
 {
   const auto kind_field = entry.find("kind");
   if (kind_field == entry.end() || !kind_field->is_string()) {
     throw ValidationError(kSubscriptionKindField, "heartbeat subscription 'kind' must be a string");
   }
 
-  const std::string kind = trim(kind_field->get_ref<const std::string &>());
+  const std::string & raw_kind = kind_field->get_ref<const std::string &>();
+  const std::string kind = trim(raw_kind);
+  if (kind.empty()) {
+    throw ValidationError(kSubscriptionKindField, "heartbeat subscription 'kind' must be a non-empty value");
+  }
   if (kind == "topic") {
     demand.kind = SubscriptionTargetKind::Topic;
   } else if (kind == "other_video") {
@@ -129,8 +139,11 @@ void parseTarget(const nlohmann::json & entry, SubscriptionDemand & demand)
   } else if (kind == "other_audio") {
     demand.kind = SubscriptionTargetKind::OtherAudio;
   } else {
-    throw ValidationError(
-      kSubscriptionKindField, "heartbeat subscription 'kind' must be 'topic', 'other_video', or 'other_audio'");
+    unsupported.kind = raw_kind;
+    if (const auto name_field = entry.find("name"); name_field != entry.end() && name_field->is_string()) {
+      unsupported.name = name_field->get_ref<const std::string &>();
+    }
+    return false;
   }
 
   const auto name_field = entry.find("name");
@@ -147,7 +160,7 @@ void parseTarget(const nlohmann::json & entry, SubscriptionDemand & demand)
     } catch (const std::exception & exc) {
       throw ValidationError(kSubscriptionNameField, exc.what());
     }
-    return;
+    return true;
   }
 
   demand.name = trim(raw);
@@ -155,6 +168,7 @@ void parseTarget(const nlohmann::json & entry, SubscriptionDemand & demand)
     throw ValidationError(
       kSubscriptionNameField, "heartbeat subscription other source name must trim to a non-empty name");
   }
+  return true;
 }
 
 nlohmann::json serialize(const SubscriptionStatus & status)
@@ -217,23 +231,43 @@ nlohmann::json serialize(const SubscriptionErrorStatus & status)
     case SubscriptionErrorReason::NotFound:
       reason = "not_found";
       break;
+    case SubscriptionErrorReason::UnsupportedKind:
+      reason = "unsupported_kind";
+      break;
   }
   if (reason == nullptr) {
     throw std::invalid_argument("subscription status error reason is invalid");
   }
+  if (status.reason == SubscriptionErrorReason::UnsupportedKind && status.raw_kind.empty()) {
+    throw std::invalid_argument("unsupported kind status is missing the raw kind to echo");
+  }
 
-  return {
-    {"kind", toWire(status.kind)},
-    {"name", status.name},
+  // Unrecognized kinds echo the client's raw kind and name verbatim; recognized kinds
+  // use the standard wire mapping.
+  nlohmann::json body = {
+    {"kind", status.reason == SubscriptionErrorReason::UnsupportedKind ? status.raw_kind : toWire(status.kind)},
     {"status", "error"},
     {"error", {{"reason", reason}, {"message", status.message}}},
   };
+  if (status.reason == SubscriptionErrorReason::UnsupportedKind) {
+    if (status.raw_name.has_value()) {
+      body["name"] = *status.raw_name;
+    }
+  } else {
+    body["name"] = status.name;
+  }
+  return body;
 }
 
 SubscriptionHeartbeat parse(const nlohmann::json & body)
 {
   SubscriptionHeartbeat heartbeat;
   std::unordered_map<std::string, std::size_t> index_by_target;
+  // Deduplicates unsupported entries by their (raw kind, name) identity, mirroring the
+  // first-seen-order `seen`-set idiom used by ros2.interface.show and the config loaders.
+  // A pair key keeps absent `name` distinct from an empty-string `name` and is immune to
+  // `:` appearing in client-controlled strings.
+  std::set<std::pair<std::string, std::optional<std::string>>> seen_unsupported;
   try {
     heartbeat.session_id = protocol::detail::optionalString(
       body, "session_id", "heartbeat session_id must be a string", /*null_is_absent=*/true);
@@ -256,7 +290,15 @@ SubscriptionHeartbeat parse(const nlohmann::json & body)
     }
 
     SubscriptionDemand demand;
-    parseTarget(entry, demand);
+    UnsupportedSubscription unsupported;
+    if (!parseTarget(entry, demand, unsupported)) {
+      // Unrecognized kind: record the entry so the status report can answer it with an
+      // `unsupported_kind` error while the bridge keeps honoring the targets it understands.
+      if (seen_unsupported.insert({unsupported.kind, unsupported.name}).second) {
+        heartbeat.unsupported.push_back(std::move(unsupported));
+      }
+      continue;
+    }
     if (const auto interval = parseIntervalMs(entry)) {
       demand.preferred_interval_ms = *interval;
     }

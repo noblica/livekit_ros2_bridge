@@ -213,6 +213,18 @@ SubscriptionHeartbeat makeHeartbeat(
   return heartbeat;
 }
 
+SubscriptionHeartbeat makeHeartbeat(
+  std::vector<SubscriptionDemand> demands,
+  std::vector<UnsupportedSubscription> unsupported,
+  std::optional<std::string> session_id = std::nullopt)
+{
+  SubscriptionHeartbeat heartbeat;
+  heartbeat.session_id = std::move(session_id);
+  heartbeat.demands = std::move(demands);
+  heartbeat.unsupported = std::move(unsupported);
+  return heartbeat;
+}
+
 std::vector<std::uint8_t> payloadBytes(const std::string & payload)
 {
   return std::vector<std::uint8_t>(payload.begin(), payload.end());
@@ -240,6 +252,14 @@ std::vector<std::uint8_t> heartbeatPayloadBytes(const SubscriptionHeartbeat & he
     };
     if (demand.preferred_interval_ms.has_value()) {
       entry["delivery_preferences"] = {{"interval_ms", *demand.preferred_interval_ms}};
+    }
+    body["subscriptions"].push_back(std::move(entry));
+  }
+
+  for (const auto & unsupported : heartbeat.unsupported) {
+    nlohmann::json entry = {{"kind", unsupported.kind}};
+    if (unsupported.name.has_value()) {
+      entry["name"] = *unsupported.name;
     }
     body["subscriptions"].push_back(std::move(entry));
   }
@@ -427,6 +447,117 @@ TEST_F(SubscriptionLeaseManagerHeartbeatTest, InvalidHeartbeatPayloadIsDroppedWi
 
   EXPECT_EQ(state_->publish_data_call_count, 0);
   EXPECT_TRUE(state_->published_data_track_names.empty());
+}
+
+TEST_F(SubscriptionLeaseManagerHeartbeatTest, UnsupportedKindEntryIsAnsweredWithRemainingTargetsHandled)
+{
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node_);
+
+  auto publisher = advertiseTopic<sensor_msgs::msg::BatteryState>(executor, node_, "/battery_state");
+
+  auto manager = makeManager(access_policy_);
+  const auto payload = payloadBytes(
+    R"({"session_id":"session-1","subscriptions":[
+        {"kind":"topic","name":"/battery_state"},
+        {"kind":"service","name":"/battery"}
+      ]})");
+
+  EXPECT_NO_THROW(manager.handleHeartbeatPayload("requester-1", payload));
+
+  const auto envelope = extractPublishedStatusEnvelope(*state_, "requester-1");
+  EXPECT_EQ(envelope["session_id"], "session-1");
+  ASSERT_EQ(envelope["subscriptions"].size(), 2U);
+
+  const auto & status = envelope["subscriptions"].at(0);
+  expectStatusEntry(status, "topic", "/battery_state", "active");
+
+  const auto & unsupported = envelope["subscriptions"].at(1);
+  EXPECT_EQ(unsupported["kind"], "service");
+  EXPECT_EQ(unsupported["name"], "/battery");
+  EXPECT_EQ(unsupported["status"], "error");
+  EXPECT_EQ(unsupported["error"]["reason"], "unsupported_kind");
+  EXPECT_EQ(unsupported["error"]["message"], "This bridge does not support subscription kind 'service'.");
+  (void)publisher;
+}
+
+TEST_F(SubscriptionLeaseManagerHeartbeatTest, UnsupportedKindOnlyHeartbeatStillPublishesStatus)
+{
+  auto manager = makeManager(access_policy_);
+  const auto payload = payloadBytes(R"({"session_id":"session-1","subscriptions":[{"kind":"service"}]})");
+
+  EXPECT_NO_THROW(manager.handleHeartbeatPayload("requester-1", payload));
+
+  const auto & unsupported = extractPublishedStatusEntry(*state_, "requester-1");
+  EXPECT_EQ(unsupported["kind"], "service");
+  EXPECT_FALSE(unsupported.contains("name"));
+  EXPECT_EQ(unsupported["status"], "error");
+  EXPECT_EQ(unsupported["error"]["reason"], "unsupported_kind");
+}
+
+TEST_F(SubscriptionLeaseManagerHeartbeatTest, UnsupportedKindBeforeRecognizedTargetIsAnsweredAfterIt)
+{
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node_);
+
+  auto publisher = advertiseTopic<sensor_msgs::msg::BatteryState>(executor, node_, "/battery_state");
+
+  auto manager = makeManager(access_policy_);
+  const auto payload = payloadBytes(
+    R"({"session_id":"session-1","subscriptions":[
+        {"kind":"service","name":"/battery"},
+        {"kind":"topic","name":"/battery_state"}
+      ]})");
+
+  EXPECT_NO_THROW(manager.handleHeartbeatPayload("requester-1", payload));
+
+  const auto envelope = extractPublishedStatusEnvelope(*state_, "requester-1");
+  ASSERT_EQ(envelope["subscriptions"].size(), 2U);
+  // Wire order has the unsupported entry first; status order still answers recognized
+  // targets first and appends the unsupported error afterward.
+  EXPECT_EQ(envelope["subscriptions"].at(0)["kind"], "topic");
+  expectStatusEntry(envelope["subscriptions"].at(0), "topic", "/battery_state", "active");
+  EXPECT_EQ(envelope["subscriptions"].at(1)["kind"], "service");
+  EXPECT_EQ(envelope["subscriptions"].at(1)["error"]["reason"], "unsupported_kind");
+  (void)publisher;
+}
+
+TEST_F(SubscriptionLeaseManagerHeartbeatTest, MultipleUnsupportedKindsKeepFirstSeenOrderAndDedupe)
+{
+  auto manager = makeManager(access_policy_);
+  const auto payload = payloadBytes(
+    R"({"session_id":"session-1","subscriptions":[
+        {"kind":"a:b","name":"x"},
+        {"kind":"service","name":"/battery"},
+        {"kind":"service","name":"/battery"},
+        {"kind":"a","name":"b:x"},
+        {"kind":"widget"},
+        {"kind":"widget","name":""}
+      ]})");
+
+  EXPECT_NO_THROW(manager.handleHeartbeatPayload("requester-1", payload));
+
+  const auto envelope = extractPublishedStatusEnvelope(*state_, "requester-1");
+  ASSERT_EQ(envelope["subscriptions"].size(), 5U);
+
+  // First-seen order among unsupported entries, deduplicated by (kind, name) identity:
+  // absent `name` and empty-string `name` are distinct, and ':' in either field cannot
+  // make distinct entries collide.
+  EXPECT_EQ(envelope["subscriptions"].at(0)["kind"], "a:b");
+  EXPECT_EQ(envelope["subscriptions"].at(0)["name"], "x");
+  EXPECT_EQ(envelope["subscriptions"].at(1)["kind"], "service");
+  EXPECT_EQ(envelope["subscriptions"].at(1)["name"], "/battery");
+  EXPECT_EQ(envelope["subscriptions"].at(2)["kind"], "a");
+  EXPECT_EQ(envelope["subscriptions"].at(2)["name"], "b:x");
+  EXPECT_EQ(envelope["subscriptions"].at(3)["kind"], "widget");
+  EXPECT_FALSE(envelope["subscriptions"].at(3).contains("name"));
+  EXPECT_EQ(envelope["subscriptions"].at(4)["kind"], "widget");
+  EXPECT_EQ(envelope["subscriptions"].at(4)["name"], "");
+
+  for (const auto & entry : envelope["subscriptions"]) {
+    EXPECT_EQ(entry["status"], "error");
+    EXPECT_EQ(entry["error"]["reason"], "unsupported_kind");
+  }
 }
 
 TEST(SubscriptionLeaseManagerTest, HeartbeatReturnsDeterministicDataTrackForNonVideoTopics)
@@ -1349,11 +1480,20 @@ TEST_F(SubscriptionLeaseManagerHeartbeatTest, MixedSubscriptionResultsArePublish
     manager,
     *state_,
     "requester-1",
-    makeHeartbeat({makeTopicDemand("/battery_state", 100), makeTopicDemand("/nonexistent_topic", 100)}));
+    makeHeartbeat(
+      {makeTopicDemand("/battery_state", 100), makeTopicDemand("/nonexistent_topic", 100)},
+      {UnsupportedSubscription{"hologram_feed", std::optional<std::string>{"deck_left"}}}));
 
   const auto envelope = extractPublishedStatusEnvelope(*state_, "requester-1");
   ASSERT_TRUE(envelope.contains("subscriptions"));
-  ASSERT_EQ(envelope["subscriptions"].size(), 2U);
+  ASSERT_EQ(envelope["subscriptions"].size(), 3U);
+  // Unrecognized-kind errors answer after recognized targets, in first-seen order.
+  EXPECT_EQ(envelope["subscriptions"].at(2)["kind"], "hologram_feed");
+
+  const auto unsupported_status = findStatusEntry(envelope, "hologram_feed", "deck_left");
+  ASSERT_TRUE(unsupported_status.has_value());
+  EXPECT_EQ((*unsupported_status)["status"], "error");
+  EXPECT_EQ((*unsupported_status)["error"]["reason"], "unsupported_kind");
 
   const auto active_status = findStatusEntry(envelope, "topic", "/battery_state");
   ASSERT_TRUE(active_status.has_value());
