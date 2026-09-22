@@ -30,9 +30,10 @@ namespace livekit_ros2_bridge::audio
 namespace
 {
 
-// Tests assert external behavior only: which reader claimed the sink, and that
-// lifecycle paths leave the sink rebindable. Pipeline internals (appsrc caps,
-// buffer timestamps) are POC-verified properties covered by the real-path
+// Tests assert external behavior: which reader claimed the sink, that lifecycle
+// paths leave the sink rebindable, and that the restart loop stays rate-bounded
+// and owner-gated. The pure timing helper is covered directly; buffer timestamps
+// as delivered to GStreamer are a POC-verified property covered by the real-path
 // integration, not this suite.
 
 class TalkbackSinkTest : public ::testing::Test
@@ -143,6 +144,107 @@ TEST_F(TalkbackSinkTest, SilenceThroughDoesNotDisturbTheClaim)
     EXPECT_NO_THROW(sink.push(1, makeSamples(480).data(), 480));
   }
   EXPECT_FALSE(sink.bind(2, 48000, 1));
+}
+
+TEST_F(TalkbackSinkTest, UnbindStopsThePipeline)
+{
+  TalkbackSink sink(kTestSinkFragment);
+
+  ASSERT_TRUE(sink.bind(1, 48000, 1));
+  EXPECT_TRUE(sink.hasActivePipeline());
+
+  // Reader finalize must release the audio.sink device, not just the claim.
+  sink.unbind(1);
+  EXPECT_FALSE(sink.hasActivePipeline());
+}
+
+TEST_F(TalkbackSinkTest, HandoverStartsAFreshPipelineWithNewCaps)
+{
+  TalkbackSink sink(kTestSinkFragment);
+
+  ASSERT_TRUE(sink.bind(1, 48000, 1));
+  const std::size_t attempts_after_first_bind = sink.pipelineStartAttempts();
+  EXPECT_TRUE(sink.hasActivePipeline());
+  EXPECT_NO_THROW(sink.push(1, makeSamples(480).data(), 480));
+
+  sink.unbind(1);
+  EXPECT_FALSE(sink.hasActivePipeline());
+
+  // The next operator track claims on its first frame; a fresh pipeline is built
+  // with its own rate/channels, and the old pipeline is gone before it starts.
+  ASSERT_TRUE(sink.bind(2, 44100, 2));
+  EXPECT_EQ(sink.pipelineStartAttempts(), attempts_after_first_bind + 1);
+  EXPECT_TRUE(sink.hasActivePipeline());
+  EXPECT_NO_THROW(sink.push(2, makeSamples(44100 * 2).data(), 44100 * 2));
+}
+
+TEST_F(TalkbackSinkTest, IdleSinkDoesNotRestartWhilePipelineIsDown)
+{
+  // Empty fragment makes the initial start throw, so the sink is claimed but has
+  // no pipeline. With no frames arriving, the rate-bounded loop must not cycle.
+  TalkbackSink sink("");
+
+  ASSERT_TRUE(sink.bind(1, 48000, 1));
+  const std::size_t attempts_after_bind = sink.pipelineStartAttempts();
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(700));
+  EXPECT_EQ(sink.pipelineStartAttempts(), attempts_after_bind);
+}
+
+TEST_F(TalkbackSinkTest, LiveFramesReArmBoundedRestarts)
+{
+  // With a dead device, each live frame re-arms the restart loop (bounded by the
+  // 250 ms delay). Over 700 ms that is at least the initial bind plus a retry.
+  TalkbackSink sink("");
+
+  ASSERT_TRUE(sink.bind(1, 48000, 1));
+
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(700);
+  while (std::chrono::steady_clock::now() < deadline) {
+    EXPECT_NO_THROW(sink.push(1, makeSamples(480).data(), 480));
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+
+  EXPECT_GE(sink.pipelineStartAttempts(), 2U);
+}
+
+TEST_F(TalkbackSinkTest, NoRestartAfterUnbind)
+{
+  TalkbackSink sink("");
+
+  ASSERT_TRUE(sink.bind(1, 48000, 1));
+  for (int frame_index = 0; frame_index < 5; ++frame_index) {
+    sink.push(1, makeSamples(480).data(), 480);
+  }
+
+  sink.unbind(1);
+  const std::size_t attempts_after_unbind = sink.pipelineStartAttempts();
+
+  // Frames from the released reader are ignored, and no pending/queued restart
+  // may reopen the device after the claim is gone.
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(700);
+  while (std::chrono::steady_clock::now() < deadline) {
+    sink.push(1, makeSamples(480).data(), 480);
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+
+  EXPECT_EQ(sink.pipelineStartAttempts(), attempts_after_unbind);
+}
+
+TEST_F(TalkbackSinkTest, TimingHelperIsCorrectForMonoAndStereo)
+{
+  // 480 frames at 48 kHz is 10 ms regardless of channel count; the interleaved
+  // sample count only scales the byte size, not the duration.
+  const TalkbackBufferTiming mono = computeTalkbackBufferTiming(480, 1, 48000, 0);
+  EXPECT_EQ(mono.pts, 0U);
+  EXPECT_EQ(mono.duration, 10'000'000U);
+
+  const TalkbackBufferTiming stereo = computeTalkbackBufferTiming(960, 2, 48000, 0);
+  EXPECT_EQ(stereo.duration, 10'000'000U);
+
+  // A running PTS advances by exactly the previous buffer's duration.
+  const TalkbackBufferTiming second = computeTalkbackBufferTiming(480, 1, 48000, mono.pts + mono.duration);
+  EXPECT_EQ(second.pts, 10'000'000U);
 }
 
 }  // namespace

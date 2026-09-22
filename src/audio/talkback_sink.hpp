@@ -33,6 +33,22 @@
 namespace livekit_ros2_bridge::audio
 {
 
+// Timing for one interleaved S16 buffer. The per-channel frame count drives the
+// duration, so a stereo buffer advances the playback clock the same wall time as
+// a mono buffer with the same number of frames. The caller threads next_pts
+// through push(); keeping a running GstClockTime avoids the long-run overflow of
+// multiplying an ever-growing sample counter by GST_SECOND.
+struct TalkbackBufferTiming
+{
+  GstClockTime pts;
+  GstClockTime duration;
+};
+
+// Computes PTS/DURATION for one interleaved S16 buffer. A non-positive channel
+// count is treated as mono; a non-positive rate falls back to 48000 Hz.
+TalkbackBufferTiming computeTalkbackBufferTiming(
+  std::size_t sample_count, int channels, int sample_rate, GstClockTime next_pts);
+
 // Plays received Talkback PCM through appsrc → queue (generous, non-leaky) →
 // audioconvert → audioresample → the configured sink fragment. The queue must
 // not drop: the AudioStream ring buffer upstream already does newest-wins, and
@@ -83,6 +99,14 @@ public:
   // Stops the pipeline and disables restarts. Idempotent.
   void stop();
 
+  // True while the playback pipeline is PLAYING. Lock-free, so callers can
+  // observe lifecycle without contending on mutex_.
+  bool hasActivePipeline() const;
+
+  // Number of startPipelineLocked() invocations. The restart loop is
+  // rate-bounded, so tests assert growth rather than absolute counts.
+  std::size_t pipelineStartAttempts() const;
+
 private:
   void startPipelineLocked();
   void stopPipelineLocked();
@@ -101,10 +125,17 @@ private:
   int caps_rate_ = 0;
   int caps_channels_ = 0;
 
-  // Samples already pushed onto the current pipeline instance; the running
-  // source of buffer PTS/DURATION (audio clock, not wall clock). Reset in
-  // startPipelineLocked() so a restarted pipeline sees timestamps from 0.
-  std::uint64_t samples_pushed_ = 0;
+  // PTS of the next buffer on the current pipeline instance; the running source
+  // of buffer PTS/DURATION (audio clock, not wall clock). Reset in
+  // startPipelineLocked() so a restarted pipeline sees timestamps from 0. A
+  // running GstClockTime avoids the long-run overflow of an ever-growing
+  // sample counter multiplied by GST_SECOND.
+  GstClockTime next_pts_ = 0;
+
+  // Bumped at the top of every startPipelineLocked() so tests can tell idle
+  // sinks (no frames, no restarts) from sinks whose live frame cadence re-arms
+  // the restart loop.
+  std::atomic<std::size_t> pipeline_start_attempts_{0};
 
   // Lock-free mirror of pipeline_ != nullptr so push() can re-arm the restart
   // loop without touching mutex_: a restart attempt that fails swallows its

@@ -308,6 +308,7 @@ if(BUILD_TESTING)
   livekit_ros2_bridge_add_test(test_audio_track_publisher test/cpp/test_audio_track_publisher.cpp)
   livekit_ros2_bridge_add_test(test_talkback_sink test/cpp/test_talkback_sink.cpp PkgConfig::gstreamer-app)
   livekit_ros2_bridge_add_test(test_talkback_manager test/cpp/test_talkback_manager.cpp)
+  livekit_ros2_bridge_add_test(test_pipeline_failure_handler test/cpp/test_pipeline_failure_handler.cpp)
 endif()
 
 ament_package()

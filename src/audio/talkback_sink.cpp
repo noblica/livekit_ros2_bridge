@@ -54,6 +54,17 @@ std::string buildSinkPipelineDescription(const std::string & sink_fragment)
 
 }  // namespace
 
+TalkbackBufferTiming computeTalkbackBufferTiming(
+  std::size_t sample_count, int channels, int sample_rate, GstClockTime next_pts)
+{
+  const int effective_channels = channels > 0 ? channels : 1;
+  const int effective_rate = sample_rate > 0 ? sample_rate : 48000;
+  const std::size_t frame_count = sample_count / static_cast<std::size_t>(effective_channels);
+  const GstClockTime duration =
+    static_cast<GstClockTime>(frame_count) * GST_SECOND / static_cast<GstClockTime>(effective_rate);
+  return {next_pts, duration};
+}
+
 TalkbackSink::TalkbackSink(std::string sink_fragment)
 : sink_fragment_(std::move(sink_fragment))
 , failure_handler_(kRestartDelay, [this]() { restartPipeline(); })
@@ -78,6 +89,9 @@ bool TalkbackSink::bind(std::uint64_t reader_id, int sample_rate, int num_channe
 
   {
     std::lock_guard<std::mutex> lock(mutex_);
+    // A rebind (lease handover) may arrive while the previous pipeline is still
+    // PLAYING; stop it first so two pipelines never compete for the device.
+    stopPipelineLocked();
     caps_rate_ = sample_rate;
     caps_channels_ = num_channels;
     try {
@@ -145,17 +159,15 @@ void TalkbackSink::push(std::uint64_t reader_id, const std::int16_t * samples, s
     std::memcpy(mapping.get()->data, samples, byte_size);
   }
 
-  // Explicit sample-count PTS/DURATION (do-timestamp=false): the audio clock
+  // Explicit frame-count PTS/DURATION (do-timestamp=false): the audio clock
   // defines time as a perfectly regular stamp train, instead of wall-clock
   // arrival stamps that jitter against the pipeline clock and crackle.
-  const auto rate = static_cast<GstClockTime>(caps_rate_);
-  const GstClockTime duration = static_cast<GstClockTime>(count) * GST_SECOND / rate;
-  const GstClockTime pts = static_cast<GstClockTime>(samples_pushed_) * GST_SECOND / rate;
-  samples_pushed_ += count;
+  const TalkbackBufferTiming timing = computeTalkbackBufferTiming(count, caps_channels_, caps_rate_, next_pts_);
+  next_pts_ += timing.duration;
 
-  GST_BUFFER_PTS(buffer.get()) = pts;
-  GST_BUFFER_DTS(buffer.get()) = pts;
-  GST_BUFFER_DURATION(buffer.get()) = duration;
+  GST_BUFFER_PTS(buffer.get()) = timing.pts;
+  GST_BUFFER_DTS(buffer.get()) = timing.pts;
+  GST_BUFFER_DURATION(buffer.get()) = timing.duration;
 
   // Failure must not tear anything down — appsrc is block=false, so the next
   // push simply reclaims the pipeline.
@@ -171,7 +183,17 @@ void TalkbackSink::push(std::uint64_t reader_id, const std::int16_t * samples, s
 void TalkbackSink::unbind(std::uint64_t reader_id)
 {
   std::uint64_t expected = reader_id;
-  (void)owner_.compare_exchange_strong(expected, 0);
+  if (!owner_.compare_exchange_strong(expected, 0)) {
+    return;
+  }
+
+  // Releasing the claim must also release the output device: otherwise a
+  // coalesced restart could reopen the speaker after the operator's track
+  // unpublishes. Cancel the queued restart so it cannot run at all;
+  // restartPipeline()'s owner_ == 0 guard is the second line of defence.
+  std::lock_guard<std::mutex> lock(mutex_);
+  stopPipelineLocked();
+  failure_handler_.cancelPending();
 }
 
 void TalkbackSink::stop()
@@ -182,6 +204,16 @@ void TalkbackSink::stop()
 
   std::lock_guard<std::mutex> lock(mutex_);
   stopPipelineLocked();
+}
+
+bool TalkbackSink::hasActivePipeline() const
+{
+  return pipeline_active_.load(std::memory_order_acquire);
+}
+
+std::size_t TalkbackSink::pipelineStartAttempts() const
+{
+  return pipeline_start_attempts_.load(std::memory_order_relaxed);
 }
 
 // This path must stay lock-free against mutex_: the sync bus handler can
@@ -224,6 +256,11 @@ void TalkbackSink::restartPipeline()
   if (is_shutdown_.load(std::memory_order_acquire)) {
     return;
   }
+  // A restart scheduled before an unbind must not reopen the device: no
+  // pipeline may run without an owner to feed it.
+  if (owner_.load(std::memory_order_acquire) == 0) {
+    return;
+  }
 
   stopPipelineLocked();
   try {
@@ -238,6 +275,8 @@ void TalkbackSink::restartPipeline()
 
 void TalkbackSink::startPipelineLocked()
 {
+  (void)pipeline_start_attempts_.fetch_add(1, std::memory_order_relaxed);
+
   utils::ensureGStreamerInitialized();
 
   if (sink_fragment_.empty()) {
@@ -288,7 +327,7 @@ void TalkbackSink::startPipelineLocked()
   // The bin lookup's own reference keeps the appsrc valid for the pipeline's
   // lifetime; only the pointer is stored here.
   appsrc_element_ = std::move(appsrc_element);
-  samples_pushed_ = 0;  // fresh pipeline = fresh clock base
+  next_pts_ = 0;  // fresh pipeline = fresh clock base
   pipeline_active_.store(true, std::memory_order_release);
 
   const GstStateChangeReturn result = gst_element_set_state(pipeline_.get(), GST_STATE_PLAYING);
