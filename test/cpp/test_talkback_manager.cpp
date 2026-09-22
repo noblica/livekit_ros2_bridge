@@ -589,5 +589,25 @@ TEST_F(TalkbackManagerTest, NonOperatorSubscribedTrackIsIgnored)
       "participant-1", track->sid(), "lkros.audio.other.cab_mic", livekit::TrackKind::KIND_AUDIO, nullptr});
 }
 
+// Stress the destructor's reader-drain wait: a regression in the wait/notify
+// bookkeeping manifests as a hang that trips the test timeout, not as a failed
+// expectation. Each iteration starts a live reader and waits for it to exit
+// during destruction, maximizing exposure to a lost wakeup.
+TEST_F(TalkbackManagerTest, ReaderShutdownWaitDoesNotLoseWakeups)
+{
+  for (int iteration = 0; iteration < 300; ++iteration) {
+    FakeRoomConnection connection;
+    auto sink = std::make_shared<FakeTalkbackSink>();
+    FakeStreamFactory factory;
+    TalkbackManager manager(connection, sink, factory.make());
+
+    auto track = connection.makeSyntheticRemoteTrack();
+    manager.onRemoteTrackSubscribed(subscribedOperatorEvent("participant-1", track));
+    factory.created.front()->pushFrame(48000, 1, 480);
+
+    // The manager and this iteration's reader drain at the closing brace.
+  }
+}
+
 }  // namespace
 }  // namespace livekit_ros2_bridge::audio

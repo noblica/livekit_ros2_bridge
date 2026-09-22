@@ -330,7 +330,12 @@ void TalkbackManager::subscribeOperatorTrack(const RemoteTrackEvent & event)
           .fieldOr("track_sid", track_sid)
           .field("frames_received", total_frames)
           .info();
-        live_readers_.fetch_sub(1, std::memory_order_acq_rel);
+        // Decrement under wait_mutex_ so the destructor cannot slip between
+        // its predicate check and its wait and miss the wakeup.
+        {
+          std::lock_guard<std::mutex> exit_lock(wait_mutex_);
+          live_readers_.fetch_sub(1, std::memory_order_acq_rel);
+        }
         wait_cv_.notify_all();
       });
 
@@ -400,7 +405,10 @@ void TalkbackManager::subscribeOperatorTrack(const RemoteTrackEvent & event)
       }
     }).detach();
   } catch (...) {
-    live_readers_.fetch_sub(1, std::memory_order_acq_rel);
+    {
+      std::lock_guard<std::mutex> exit_lock(wait_mutex_);
+      live_readers_.fetch_sub(1, std::memory_order_acq_rel);
+    }
     wait_cv_.notify_all();
     {
       std::lock_guard<std::mutex> lock(mutex_);
