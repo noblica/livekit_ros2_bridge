@@ -55,6 +55,16 @@ struct GstIteratorDeleter
   }
 };
 
+struct GstCapsDeleter
+{
+  void operator()(GstCaps * ptr) const
+  {
+    // GstCaps is a GstMiniObject, not a GObject: it must be released with
+    // gst_caps_unref, never gst_object_unref/g_object_unref.
+    gst_caps_unref(ptr);
+  }
+};
+
 struct GstBufferDeleter
 {
   void operator()(GstBuffer * ptr) const
@@ -76,6 +86,7 @@ using GstObjectPtr = std::unique_ptr<T, GstObjectDeleter>;
 
 using GstElementPtr = GstObjectPtr<GstElement>;
 using GstBusPtr = GstObjectPtr<GstBus>;
+using GstCapsPtr = std::unique_ptr<GstCaps, GstCapsDeleter>;
 using GErrorPtr = std::unique_ptr<GError, GErrorDeleter>;
 using GCharPtr = std::unique_ptr<gchar, GCharDeleter>;
 using GstIteratorPtr = std::unique_ptr<GstIterator, GstIteratorDeleter>;

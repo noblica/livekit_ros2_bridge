@@ -257,11 +257,10 @@ void TalkbackSink::startPipelineLocked()
   if (raw_caps == nullptr) {
     throw std::runtime_error("Failed to parse talkback sink caps: " + caps_string);
   }
-  // gst_caps_from_string returns a floating reference. Sink it so the unique
-  // ptr owns one full ref and set_caps takes its own; floating refs would be
-  // consumed by the first taker and the unref here would dangle.
-  g_object_ref_sink(raw_caps);
-  utils::GstObjectPtr<GstCaps> caps(raw_caps);
+  // gst_caps_from_string returns a floating reference. It is a GstMiniObject,
+  // so it is released with gst_caps_unref (via GstCapsPtr), not the GObject
+  // refcounting used for elements/buses. set_caps takes its own ref.
+  utils::GstCapsPtr caps(raw_caps);
 
   gst_app_src_set_caps(GST_APP_SRC(appsrc_element.get()), caps.get());
   gst_app_src_set_stream_type(GST_APP_SRC(appsrc_element.get()), GST_APP_STREAM_TYPE_STREAM);
