@@ -15,16 +15,36 @@
 #include "runtime.hpp"
 
 #include <chrono>
+#include <cstdlib>
 #include <stdexcept>
+#include <string_view>
 #include <utility>
 
 #include "livekit/remote_participant.h"
+#include "livekit/remote_track_publication.h"
 #include "livekit/room_event_types.h"
 #include "protocol/constants.hpp"
 #include "utils/log_event.hpp"
 
 namespace livekit_ros2_bridge
 {
+
+namespace
+{
+
+// Talkback POC gate. Reads the env at Runtime construction; default
+// OFF so normal runs are unchanged.
+bool talkbackPocRequested()
+{
+  const char * flag = std::getenv("LIVEKIT_TALKBACK_POC");
+  return flag != nullptr && std::string_view(flag) == "1";
+}
+
+constexpr char kTalkbackPocWavDir[] = "/tmp/talkback_poc";
+
+const auto kPocLogger = rclcpp::get_logger("livekit_ros2_bridge.talkback_poc");
+
+}  // namespace
 
 Runtime::Runtime(Runtime::NodeInterfaces interfaces, std::unique_ptr<RoomConnection> connection, RuntimeConfig config)
 : clock_(interfaces.get_node_clock_interface()->get_clock())
@@ -66,6 +86,13 @@ Runtime::Runtime(Runtime::NodeInterfaces interfaces, std::unique_ptr<RoomConnect
     throw std::runtime_error("Failed to register required RPC methods");
   }
 
+  if (talkbackPocRequested()) {
+    // TALKBACK POC — throwaway; delete with src/poc/.
+    talkback_poc_ = std::make_unique<TalkbackPoc>(logger_, std::string(kTalkbackPocWavDir));
+  } else {
+    LogEvent(logger_, "talkback_poc_disabled").info();
+  }
+
   room_connection_->start(config_.livekit, makeRoomCallbacks());
 }
 
@@ -79,6 +106,9 @@ Runtime::~Runtime()
   ros_executor_queue_.shutdown();
   subscription_lease_manager_.shutdown();
   rpc_router_.unregisterRpcs();
+  // Destroy the POC before the room stops: it flips every reader's stop flag
+  // and closes the streams so no reader thread outlives this Runtime.
+  talkback_poc_.reset();
   room_connection_->stop();
 }
 
@@ -93,10 +123,42 @@ RoomEventCallbacks Runtime::makeRoomCallbacks()
   };
   callbacks.on_participant_disconnected = [this](const livekit::ParticipantDisconnectedEvent & event) {
     (void)callback_gate_.run([this, &event]() {
+      if (talkback_poc_ != nullptr) {
+        talkback_poc_->onParticipantDisconnected(event);
+      }
       std::string identity = event.participant->identity();
       submitRosWork([this, identity = std::move(identity)]() { ros_service_caller_.cancelForRequester(identity); });
     });
   };
+
+  // TALKBACK POC: these run on SDK delegate threads and are wrapped
+  // in callback_gate_ like every other callback, so they are rejected once
+  // teardown begins (the gate closes before talkback_poc_ is destroyed).
+  // TalkbackPoc logs/threads only — no ROS work is submitted.
+  if (talkback_poc_ != nullptr) {
+    TalkbackPoc * poc = talkback_poc_.get();
+    callbacks.on_track_published = [this](const livekit::TrackPublishedEvent & event) {
+      (void)callback_gate_.run([&event]() {
+        const auto * publication = event.publication.get();
+        const std::string participant_identity =
+          event.participant == nullptr ? std::string() : event.participant->identity();
+        LogEvent(kPocLogger, "talkback_poc_track_published")
+          .fieldOr("track_sid", publication == nullptr ? std::string() : publication->sid())
+          .fieldOr("track_name", publication == nullptr ? std::string() : publication->name())
+          .fieldOr("participant_identity", participant_identity)
+          .info();
+      });
+    };
+    callbacks.on_track_unpublished = [poc, this](const livekit::TrackUnpublishedEvent & event) {
+      (void)callback_gate_.run([poc, &event]() { poc->onTrackUnpublished(event); });
+    };
+    callbacks.on_track_subscribed = [poc, this](const livekit::TrackSubscribedEvent & event) {
+      (void)callback_gate_.run([poc, &event]() { poc->onTrackSubscribed(event); });
+    };
+    callbacks.on_track_unsubscribed = [poc, this](const livekit::TrackUnsubscribedEvent & event) {
+      (void)callback_gate_.run([poc, &event]() { poc->onTrackUnsubscribed(event); });
+    };
+  }
 
   return callbacks;
 }

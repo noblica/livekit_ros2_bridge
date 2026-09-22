@@ -33,6 +33,10 @@ struct LocalDataTrackTryPushError;
 template <typename T, typename E>
 class Result;
 struct ParticipantDisconnectedEvent;
+struct TrackPublishedEvent;
+struct TrackSubscribedEvent;
+struct TrackUnpublishedEvent;
+struct TrackUnsubscribedEvent;
 struct UserDataPacketEvent;
 class VideoSource;
 }  // namespace livekit
@@ -56,6 +60,13 @@ struct RoomEventCallbacks
 
   // SDK reconnect suppresses transient disconnects; LiveKit owns the event lifetime.
   std::function<void(const livekit::ParticipantDisconnectedEvent &)> on_participant_disconnected;
+
+  // Remote media track events (talkback POC). The publication/track shared_ptrs are SDK-owned;
+  // events run on connection-managed threads and must not outlive the room.
+  std::function<void(const livekit::TrackPublishedEvent &)> on_track_published;
+  std::function<void(const livekit::TrackUnpublishedEvent &)> on_track_unpublished;
+  std::function<void(const livekit::TrackSubscribedEvent &)> on_track_subscribed;
+  std::function<void(const livekit::TrackUnsubscribedEvent &)> on_track_unsubscribed;
 };
 
 // Thread-safe facade around one SDK-owned room; callbacks may run on connection-managed threads.
