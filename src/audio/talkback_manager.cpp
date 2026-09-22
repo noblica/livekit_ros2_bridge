@@ -114,11 +114,6 @@ TalkbackManager::~TalkbackManager()
   wait_cv_.wait(wait_lock, [this]() { return live_readers_.load(std::memory_order_acquire) == 0; });
 }
 
-bool TalkbackManager::isActive() const
-{
-  return !is_shutdown_.load(std::memory_order_acquire);
-}
-
 void TalkbackManager::onRemoteTrackPublished(const RemoteTrackEvent & event)
 {
   std::lock_guard<std::mutex> event_lock(event_mutex_);
@@ -126,17 +121,19 @@ void TalkbackManager::onRemoteTrackPublished(const RemoteTrackEvent & event)
     return;
   }
 
+  if (event.track_name != protocol::kTalkbackTrackName) {
+    return;
+  }
+
   // The publisher's identity reaches logs here; the bridge performs no
-  // identity checks on the Talkback Track.
+  // identity checks on the Talkback Track. Logged only for the operator-named
+  // track so busy rooms do not emit an info line per foreign publication.
   LogEvent(kLogger, "remote_track_published")
     .fieldOr("participant_identity", event.participant_identity)
     .fieldOr("track_sid", event.track_sid)
     .fieldQuoted("track_name", event.track_name)
     .info();
 
-  if (event.track_name != protocol::kTalkbackTrackName) {
-    return;
-  }
   // A second live operator track still gets subscribed (it is the named
   // track); its frames are then logged once and dropped by the single active
   // sink, so it can never steal the speaker from the active operator.

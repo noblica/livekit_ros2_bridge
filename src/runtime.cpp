@@ -18,6 +18,7 @@
 #include <stdexcept>
 #include <utility>
 
+#include "audio/talkback_manager.hpp"
 #include "livekit/remote_participant.h"
 #include "livekit/room_event_types.h"
 #include "protocol/constants.hpp"

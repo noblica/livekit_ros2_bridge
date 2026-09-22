@@ -18,7 +18,6 @@
 #include <memory>
 #include <string>
 
-#include "audio/talkback_manager.hpp"
 #include "connection_watchdog.hpp"
 #include "rclcpp/clock.hpp"
 #include "rclcpp/logger.hpp"
@@ -42,6 +41,11 @@
 
 namespace livekit_ros2_bridge
 {
+
+namespace audio
+{
+class TalkbackManager;
+}  // namespace audio
 
 class Runtime final
 {

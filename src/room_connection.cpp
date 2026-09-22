@@ -741,10 +741,10 @@ private:
 
   bool activateRoom(std::shared_ptr<livekit::Room> room)
   {
-    // The one unavoidable direct read of the SDK publication map. It runs while the room is not yet
-    // published to room_, so no live reader can race the FFI thread; every later mirror mutation
-    // happens on the FFI delegate thread. Collect before taking mutex_ so we never iterate
-    // SDK-owned participants under our lock.
+    // The one unavoidable direct read of the SDK publication map, taken here on the connect thread
+    // before room_ is assigned. The SDK FFI thread can still mutate the map concurrently, but the
+    // window is a one-time seed at connect and every later mirror read/write goes through the
+    // mirror. Collect before taking mutex_ so we never iterate SDK-owned participants under our lock.
     std::vector<RemotePublicationMirror::Record> existing_publications;
     if (room != nullptr) {
       for (const auto & remote_handle : room->remoteParticipants()) {

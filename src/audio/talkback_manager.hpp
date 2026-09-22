@@ -71,11 +71,6 @@ public:
   TalkbackManager(TalkbackManager &&) = delete;
   TalkbackManager & operator=(TalkbackManager &&) = delete;
 
-  // True while this manager may process track events. The room callback path
-  // consults the gate before invoking any handler; the Runtime additionally
-  // holds the manager only while configured, so this guard is belt-and-braces.
-  bool isActive() const;
-
   // Room event handlers. Every public handler serializes on event_mutex_ so the
   // reader map's check-then-act in subscribeOperatorTrack cannot interleave.
   void onRemoteTrackPublished(const RemoteTrackEvent & event);

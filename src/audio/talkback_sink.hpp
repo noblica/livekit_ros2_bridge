@@ -19,8 +19,8 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <mutex>
-#include <set>
 #include <string>
 
 #include "utils/gstreamer_resources.hpp"
@@ -172,8 +172,11 @@ private:
   std::atomic<std::uint64_t> owner_{0};
   std::atomic<bool> is_shutdown_{false};
 
-  std::mutex ignored_mutex_;
-  std::set<std::uint64_t> ignored_logged_;
+  // Last reader id that produced a dropped-frame log, so a chatty non-owner is
+  // logged once rather than per frame. The max() sentinel can never be a real
+  // reader id (ids start at 1), so the first genuine drop always logs. Bounded:
+  // one word, not one set entry per reader for the process lifetime.
+  std::atomic<std::uint64_t> last_ignored_reader_{std::numeric_limits<std::uint64_t>::max()};
 
   utils::PipelineFailureHandler failure_handler_;
 };

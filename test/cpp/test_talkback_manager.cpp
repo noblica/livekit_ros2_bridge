@@ -486,7 +486,6 @@ TEST_F(TalkbackManagerTest, ReadThrowIsCaughtAndUnbinds)
   factory.created.front()->failNextRead();
 
   ASSERT_TRUE(test_support::waitUntil([&]() { return sink->owner() == 0U; }));
-  EXPECT_TRUE(manager->isActive());
 }
 
 TEST_F(TalkbackManagerTest, ReconnectingStopsReadersWithoutSubscribing)
@@ -544,16 +543,6 @@ TEST_F(TalkbackManagerTest, ConnectedSkipsAlreadySubscribedOperatorTrack)
   manager.onConnected();
 
   EXPECT_TRUE(connection.state->subscribe_remote_track_calls.empty());
-}
-
-TEST_F(TalkbackManagerTest, ActiveGateFollowsLifetime)
-{
-  FakeRoomConnection connection;
-  auto manager = std::make_unique<TalkbackManager>(connection, kTestSinkFragment);
-
-  EXPECT_TRUE(manager->isActive());
-  manager->onConnected();
-  manager.reset();
 }
 
 TEST_F(TalkbackManagerTest, CleanupPathsStopReaders)

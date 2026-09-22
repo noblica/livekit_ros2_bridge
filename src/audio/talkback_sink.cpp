@@ -360,11 +360,10 @@ void TalkbackSink::stopPipelineLocked()
 
 void TalkbackSink::logIgnoredOnce(std::uint64_t reader_id)
 {
-  {
-    std::lock_guard<std::mutex> ignored_lock(ignored_mutex_);
-    if (!ignored_logged_.insert(reader_id).second) {
-      return;
-    }
+  // Only log when the dropped-frame source changes. Bounded state: a single
+  // sentinel-guarded word instead of a set that grows per reader.
+  if (last_ignored_reader_.exchange(reader_id, std::memory_order_acq_rel) == reader_id) {
+    return;
   }
   LogEvent(kLogger, "talkback_sink_frame_dropped")
     .field("reader_id", reader_id)

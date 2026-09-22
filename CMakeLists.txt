@@ -176,8 +176,6 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
   nlohmann_json::nlohmann_json
   OpenSSL::Crypto
   rmw::rmw
-  PkgConfig::gstreamer
-  PkgConfig::gstreamer-app
 )
 rclcpp_components_register_node(${PROJECT_NAME}
   PLUGIN "livekit_ros2_bridge::Node"
