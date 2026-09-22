@@ -66,6 +66,7 @@ struct RoomEventCallbacks
   std::function<void(const struct RemoteTrackEvent &)> on_remote_track_unpublished;
   std::function<void(const struct RemoteTrackEvent &)> on_remote_track_subscribed;
   std::function<void(const struct RemoteTrackEvent &)> on_remote_track_unsubscribed;
+  std::function<void(const struct RemoteTrackSubscriptionFailedEvent &)> on_remote_track_subscription_failed;
 };
 
 // Plain remote-media-track event the connection derives from SDK track events.
@@ -78,6 +79,15 @@ struct RemoteTrackEvent
   std::string track_name;
   livekit::TrackKind track_kind = livekit::TrackKind::KIND_UNKNOWN;
   std::shared_ptr<livekit::Track> track;
+};
+
+// Plain event the connection derives from the SDK's TrackSubscriptionFailedEvent.
+// Carries no publication object; the bridge reports and cleans up, never retries.
+struct RemoteTrackSubscriptionFailedEvent
+{
+  std::string participant_identity;
+  std::string track_sid;
+  std::string error;
 };
 
 // Thread-safe facade around one SDK-owned room; callbacks may run on connection-managed threads.

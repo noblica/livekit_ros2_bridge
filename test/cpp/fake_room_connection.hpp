@@ -465,6 +465,25 @@ public:
     callback(event);
   }
 
+  void emitRemoteTrackSubscriptionFailed(
+    std::string participant_identity, std::string track_sid, std::string error) const
+  {
+    std::function<void(const RemoteTrackSubscriptionFailedEvent &)> callback;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (!state->callbacks.on_remote_track_subscription_failed) {
+        return;
+      }
+      callback = state->callbacks.on_remote_track_subscription_failed;
+    }
+
+    RemoteTrackSubscriptionFailedEvent event;
+    event.participant_identity = std::move(participant_identity);
+    event.track_sid = std::move(track_sid);
+    event.error = std::move(error);
+    callback(event);
+  }
+
   void stop() override
   {
     std::function<void(FakeRoomConnection & connection)> hook;

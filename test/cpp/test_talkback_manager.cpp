@@ -398,6 +398,29 @@ TEST_F(TalkbackManagerTest, UnpublishClosesStreamAndReleasesSink)
   ASSERT_TRUE(test_support::waitUntil([&]() { return sink->owner() == 0U; }));
 }
 
+TEST_F(TalkbackManagerTest, RemoteTrackSubscriptionFailureIsLoggedAndCleansUpStream)
+{
+  FakeRoomConnection connection;
+  auto sink = std::make_shared<FakeTalkbackSink>();
+  FakeStreamFactory factory;
+  TalkbackManager manager(connection, sink, factory.make());
+
+  auto track = connection.makeSyntheticRemoteTrack();
+  manager.onRemoteTrackSubscribed(subscribedOperatorEvent("participant-1", track));
+  ASSERT_EQ(factory.created.size(), 1U);
+  auto stream = factory.created.front();
+
+  stream->pushFrame(48000, 1, 480);
+  ASSERT_TRUE(test_support::waitUntil([&]() { return sink->owner() != 0U; }));
+  EXPECT_FALSE(stream->isClosed());
+
+  EXPECT_NO_THROW(manager.onRemoteTrackSubscriptionFailed(
+    RemoteTrackSubscriptionFailedEvent{"participant-1", track->sid(), "denied"}));
+
+  ASSERT_TRUE(test_support::waitUntil([&]() { return stream->isClosed(); }));
+  ASSERT_TRUE(test_support::waitUntil([&]() { return sink->owner() == 0U; }));
+}
+
 TEST_F(TalkbackManagerTest, ParticipantDisconnectAndUnsubscribeAlsoCleanUp)
 {
   FakeRoomConnection connection;

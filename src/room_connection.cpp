@@ -990,6 +990,31 @@ private:
     forwardRemoteTrackEvent(callbacks_.on_remote_track_unsubscribed, event, event.track);
   }
 
+  void onTrackSubscriptionFailed(livekit::Room &, const livekit::TrackSubscriptionFailedEvent & event) override
+  {
+    std::function<void(const RemoteTrackSubscriptionFailedEvent &)> callback;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (state_ == livekit::ConnectionState::Disconnected) {
+        return;
+      }
+      callback = callbacks_.on_remote_track_subscription_failed;
+    }
+
+    if (callback == nullptr) {
+      return;
+    }
+
+    RemoteTrackSubscriptionFailedEvent translated;
+    if (event.participant != nullptr) {
+      translated.participant_identity = event.participant->identity();
+    }
+    translated.track_sid = event.track_sid;
+    translated.error = event.error;
+
+    callback(translated);
+  }
+
   void onRoomSidChanged(livekit::Room & room, const livekit::RoomSidChangedEvent & event) override
   {
     {

@@ -146,6 +146,11 @@ RoomEventCallbacks Runtime::makeRoomCallbacks()
     callbacks.on_remote_track_unsubscribed = [this, talkback_manager](const RemoteTrackEvent & event) {
       (void)callback_gate_.run([talkback_manager, &event]() { talkback_manager->onRemoteTrackUnsubscribed(event); });
     };
+    callbacks.on_remote_track_subscription_failed =
+      [this, talkback_manager](const RemoteTrackSubscriptionFailedEvent & event) {
+        (void)callback_gate_.run(
+          [talkback_manager, &event]() { talkback_manager->onRemoteTrackSubscriptionFailed(event); });
+      };
   }
 
   return callbacks;

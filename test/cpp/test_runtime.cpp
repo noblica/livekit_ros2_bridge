@@ -840,6 +840,16 @@ TEST_F(RuntimeTest, TalkbackReconnectResubscribesOnlyOnConnected)
   EXPECT_EQ(harness.state->subscribe_remote_track_calls.size(), 2U);
 }
 
+TEST_F(RuntimeTest, TalkbackSubscriptionFailureIsForwardedToManager)
+{
+  auto options = makeStaticTokenOptions();
+  options.append_parameter_override("audio.sink", "fakesink sync=false");
+  auto harness = makeRuntimeHarness(options);
+  harness.fake_room_connection->emitConnected();
+
+  EXPECT_NO_THROW(harness.fake_room_connection->emitRemoteTrackSubscriptionFailed("operator-1", "PA_op", "denied"));
+}
+
 TEST_F(RuntimeTest, TalkbackShutdownTearsDownBeforeRoomStop)
 {
   auto options = makeStaticTokenOptions();

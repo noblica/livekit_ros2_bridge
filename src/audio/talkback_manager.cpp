@@ -198,6 +198,22 @@ void TalkbackManager::onRemoteTrackUnsubscribed(const RemoteTrackEvent & event)
   }
 }
 
+void TalkbackManager::onRemoteTrackSubscriptionFailed(const RemoteTrackSubscriptionFailedEvent & event)
+{
+  std::lock_guard<std::mutex> event_lock(event_mutex_);
+  if (is_shutdown_.load(std::memory_order_acquire)) {
+    return;
+  }
+
+  LogEvent(kLogger, "talkback_subscription_failed")
+    .fieldOr("participant_identity", event.participant_identity)
+    .fieldOr("track_sid", event.track_sid)
+    .fieldOr("error", event.error)
+    .warn();
+
+  stopReader(event.track_sid, "subscription_failed");
+}
+
 void TalkbackManager::onParticipantDisconnected(const livekit::ParticipantDisconnectedEvent & event)
 {
   std::lock_guard<std::mutex> event_lock(event_mutex_);

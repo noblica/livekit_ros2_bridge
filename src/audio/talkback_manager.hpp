@@ -82,6 +82,7 @@ public:
   void onRemoteTrackUnpublished(const RemoteTrackEvent & event);
   void onRemoteTrackSubscribed(const RemoteTrackEvent & event);
   void onRemoteTrackUnsubscribed(const RemoteTrackEvent & event);
+  void onRemoteTrackSubscriptionFailed(const RemoteTrackSubscriptionFailedEvent & event);
   void onParticipantDisconnected(const livekit::ParticipantDisconnectedEvent & event);
 
   // Reconnect gating: a room replaced by reconnect invalidates every reader, so
