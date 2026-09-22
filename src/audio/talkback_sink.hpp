@@ -56,10 +56,12 @@ public:
   TalkbackSink(TalkbackSink &&) = delete;
   TalkbackSink & operator=(TalkbackSink &&) = delete;
 
-  // Claims the sink for this reader (first caller wins) and, on success, lazily
-  // starts the playback pipeline with caps built from this frame. Only the
-  // owning reader's first frame ever starts the pipeline. Returns true when
-  // this reader owns the sink.
+  // Claims the sink for this reader (first caller wins) and lazily starts the
+  // playback pipeline with caps built from this frame. Only the owning reader's
+  // first frame ever starts the pipeline. Returns true when this reader owns the
+  // sink; a failed initial pipeline start still reports the claim, because the
+  // owning reader's live frame cadence drives the restart loop until the device
+  // returns.
   bool bind(std::uint64_t reader_id, int sample_rate, int num_channels);
 
   // Pushes one interleaved S16 frame. Non-owner frames are logged once and

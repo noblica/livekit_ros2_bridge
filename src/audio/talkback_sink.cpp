@@ -80,10 +80,12 @@ bool TalkbackSink::bind(std::uint64_t reader_id, int sample_rate, int num_channe
     try {
       startPipelineLocked();
     } catch (const std::exception & exc) {
+      // A sink that is dead at bind time is not a binding failure: keep the claim so the owning
+      // reader's live frame cadence re-arms the restart loop (push() schedules while the pipeline
+      // is down) and playback self-heals when the device returns. Ownership is released only by
+      // unbind()/reader finalize or stop().
       LogEvent(kLogger, "talkback_sink_start_failed").fieldOr("error", exc.what()).warn();
       stopPipelineLocked();
-      owner_.store(0, std::memory_order_release);
-      return false;
     }
   }
 

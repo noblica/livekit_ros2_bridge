@@ -64,6 +64,21 @@ TEST_F(TalkbackSinkTest, FirstReaderClaimsAndBindReportsOwnership)
   EXPECT_TRUE(sink.bind(2, 48000, 1));
 }
 
+TEST_F(TalkbackSinkTest, FailedInitialStartKeepsTheClaimForRetry)
+{
+  // An empty fragment makes startPipelineLocked() throw deterministically. The
+  // reader must still own the sink afterwards so its live frame cadence keeps
+  // re-arming the restart loop and playback recovers when the device returns.
+  TalkbackSink sink("");
+
+  EXPECT_TRUE(sink.bind(1, 48000, 1));
+  EXPECT_FALSE(sink.bind(2, 48000, 1));
+  EXPECT_NO_THROW(sink.push(1, makeSamples(480).data(), 480));
+
+  sink.unbind(1);
+  EXPECT_TRUE(sink.bind(2, 48000, 1));
+}
+
 TEST_F(TalkbackSinkTest, PushFromNonOwnerIsDroppedWithoutEffect)
 {
   TalkbackSink sink(kTestSinkFragment);
