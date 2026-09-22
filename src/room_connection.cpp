@@ -35,6 +35,7 @@
 #include "livekit/local_participant.h"
 #include "livekit/local_video_track.h"
 #include "livekit/remote_participant.h"
+#include "livekit/remote_track_publication.h"
 #include "livekit/room_delegate.h"
 #include "livekit/rpc_error.h"
 #include "livekit/video_source.h"
@@ -355,6 +356,127 @@ public:
     }
   }
 
+  bool subscribeRemoteTrack(const std::string & participant_identity, const std::string & track_sid) override
+  {
+    if (participant_identity.empty() || track_sid.empty()) {
+      return false;
+    }
+
+    const auto ref = participantRef();
+    if (ref.participant == nullptr) {
+      LogEvent(kLogger, "remote_track_subscribe_failed")
+        .field("reason", "local_participant_unavailable")
+        .fieldOr("track_sid", track_sid)
+        .warn();
+      return false;
+    }
+
+    auto remote_participant = ref.room->remoteParticipant(participant_identity).lock();
+    if (remote_participant == nullptr) {
+      LogEvent(kLogger, "remote_track_subscribe_failed")
+        .field("reason", "participant_unavailable")
+        .fieldOr("participant_identity", participant_identity)
+        .fieldOr("track_sid", track_sid)
+        .warn();
+      return false;
+    }
+
+    for (const auto & [publication_sid, publication] : remote_participant->trackPublications()) {
+      (void)publication_sid;
+      if (publication == nullptr || publication->sid() != track_sid) {
+        continue;
+      }
+      if (publication->subscribed()) {
+        return true;
+      }
+      try {
+        publication->setSubscribed(true);
+      } catch (const std::exception & exc) {
+        LogEvent(kLogger, "remote_track_subscribe_failed")
+          .fieldOr("participant_identity", participant_identity)
+          .fieldOr("track_sid", track_sid)
+          .field("error", exc.what())
+          .warn();
+        return false;
+      }
+      return true;
+    }
+
+    LogEvent(kLogger, "remote_track_subscribe_failed")
+      .field("reason", "publication_unavailable")
+      .fieldOr("participant_identity", participant_identity)
+      .fieldOr("track_sid", track_sid)
+      .warn();
+    return false;
+  }
+
+  void unsubscribeRemoteTrack(const std::string & participant_identity, const std::string & track_sid) override
+  {
+    if (participant_identity.empty() || track_sid.empty()) {
+      return;
+    }
+
+    const auto ref = participantRef();
+    if (ref.participant == nullptr) {
+      return;
+    }
+
+    auto remote_participant = ref.room->remoteParticipant(participant_identity).lock();
+    if (remote_participant == nullptr) {
+      return;
+    }
+
+    for (const auto & [publication_sid, publication] : remote_participant->trackPublications()) {
+      (void)publication_sid;
+      if (publication == nullptr || publication->sid() != track_sid || !publication->subscribed()) {
+        continue;
+      }
+      try {
+        publication->setSubscribed(false);
+      } catch (const std::exception & exc) {
+        LogEvent(kLogger, "remote_track_unsubscribe_failed")
+          .fieldOr("participant_identity", participant_identity)
+          .fieldOr("track_sid", track_sid)
+          .field("error", exc.what())
+          .warn();
+      }
+      return;
+    }
+  }
+
+  std::vector<RoomConnection::RemoteTrackSnapshotEntry> remoteTrackSnapshot() override
+  {
+    std::vector<RoomConnection::RemoteTrackSnapshotEntry> snapshot;
+
+    const auto ref = participantRef();
+    if (ref.participant == nullptr) {
+      return snapshot;
+    }
+
+    for (const auto & remote_handle : ref.room->remoteParticipants()) {
+      auto remote_participant = remote_handle.lock();
+      if (remote_participant == nullptr) {
+        continue;
+      }
+
+      for (const auto & [publication_sid, publication] : remote_participant->trackPublications()) {
+        (void)publication_sid;
+        if (publication == nullptr) {
+          continue;
+        }
+        const auto kind = publication->kind();
+        if (kind != livekit::TrackKind::KIND_AUDIO && kind != livekit::TrackKind::KIND_VIDEO) {
+          continue;
+        }
+        snapshot.push_back(
+          RoomConnection::RemoteTrackSnapshotEntry{
+            remote_participant->identity(), publication->sid(), publication->name(), kind, publication->subscribed()});
+      }
+    }
+
+    return snapshot;
+  }
+
   void sendByteStream(
     const std::string & topic,
     const std::string & name,
@@ -601,7 +723,12 @@ private:
     auto room = std::make_shared<livekit::Room>();
     room->setDelegate(this);
 
-    const livekit::RoomOptions options;
+    // The bridge subscribes only to tracks it names (ADR 0001); room-wide media
+    // reception was never a contract. Track events still arrive for publications
+    // the bridge deliberately subscribes to.
+    livekit::RoomOptions options;
+    options.auto_subscribe = false;
+
     bool connected = false;
     try {
       connected = room->connect(config.url, config.access_token, options);
@@ -691,6 +818,41 @@ private:
     }
   }
 
+  template <typename EventT>
+  void forwardRemoteTrackEvent(
+    const std::function<void(const RemoteTrackEvent &)> & callback,
+    const EventT & event,
+    const std::shared_ptr<livekit::Track> & track)
+  {
+    if (callback == nullptr) {
+      return;
+    }
+
+    RemoteTrackEvent translated;
+    if (event.participant != nullptr) {
+      translated.participant_identity = event.participant->identity();
+    }
+    if (event.publication != nullptr) {
+      translated.track_sid = event.publication->sid();
+      translated.track_name = event.publication->name();
+      translated.track_kind = event.publication->kind();
+    }
+    if (translated.track_sid.empty() && track != nullptr) {
+      translated.track_sid = track->sid();
+      translated.track_kind = track->kind();
+    }
+    translated.track = track;
+
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (state_ == livekit::ConnectionState::Disconnected) {
+        return;
+      }
+    }
+
+    callback(translated);
+  }
+
   void onParticipantDisconnected(livekit::Room &, const livekit::ParticipantDisconnectedEvent & event) override
   {
     const auto * participant = event.participant;
@@ -716,6 +878,26 @@ private:
     }
 
     callback(event);
+  }
+
+  void onTrackPublished(livekit::Room &, const livekit::TrackPublishedEvent & event) override
+  {
+    forwardRemoteTrackEvent(callbacks_.on_remote_track_published, event, nullptr);
+  }
+
+  void onTrackUnpublished(livekit::Room &, const livekit::TrackUnpublishedEvent & event) override
+  {
+    forwardRemoteTrackEvent(callbacks_.on_remote_track_unpublished, event, nullptr);
+  }
+
+  void onTrackSubscribed(livekit::Room &, const livekit::TrackSubscribedEvent & event) override
+  {
+    forwardRemoteTrackEvent(callbacks_.on_remote_track_subscribed, event, event.track);
+  }
+
+  void onTrackUnsubscribed(livekit::Room &, const livekit::TrackUnsubscribedEvent & event) override
+  {
+    forwardRemoteTrackEvent(callbacks_.on_remote_track_unsubscribed, event, event.track);
   }
 
   void onRoomSidChanged(livekit::Room & room, const livekit::RoomSidChangedEvent & event) override

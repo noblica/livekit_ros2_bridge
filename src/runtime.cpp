@@ -53,13 +53,24 @@ Runtime::Runtime(Runtime::NodeInterfaces interfaces, std::unique_ptr<RoomConnect
     config_.access_policy,
     ros_executor_queue_,
     ros_service_caller_,
-    subscription_lease_manager_)
+    subscription_lease_manager_,
+    !config_.talkback.sink_fragment.empty())
 , watchdog_(config_.watchdog, logger_)
 {
   subscription_lease_manager_.startPruneTimer(
     interfaces.get_node_base_interface(), interfaces.get_node_timers_interface(), [this](std::function<void()> work) {
       submitRosWork(std::move(work));
     });
+
+  // Talkback exists only when an output device is configured. The manager's
+  // construction order relative to rpc_router_ does not matter for the
+  // capability advertisement: the router is configured above from the same
+  // runtime snapshot. The manager is created here so an unconfigured
+  // deployment never touches track events.
+  if (!config_.talkback.sink_fragment.empty()) {
+    talkback_manager_ = std::make_unique<audio::TalkbackManager>(*room_connection_, config_.talkback.sink_fragment);
+    LogEvent(logger_, "talkback_enabled").info();
+  }
 
   const bool rpcs_registered = rpc_router_.registerRpcs(*room_connection_);
   if (!rpcs_registered) {
@@ -79,6 +90,10 @@ Runtime::~Runtime()
   ros_executor_queue_.shutdown();
   subscription_lease_manager_.shutdown();
   rpc_router_.unregisterRpcs();
+  // Destroy the talkback manager before the room stops: it flips every
+  // reader's stop flag and closes the streams so no reader thread outlives
+  // this Runtime.
+  talkback_manager_.reset();
   room_connection_->stop();
 }
 
@@ -86,17 +101,50 @@ RoomEventCallbacks Runtime::makeRoomCallbacks()
 {
   RoomEventCallbacks callbacks;
   callbacks.on_state_changed = [this](livekit::ConnectionState state) {
-    (void)callback_gate_.run([this, state]() { watchdog_.onStateChanged(state); });
+    (void)callback_gate_.run([this, state]() {
+      // A reconnected room replaces the SDK's media session: track events from
+      // the old session are stale. Bump the talkback generation, stop its
+      // readers, and re-subscribe the operator track from the new snapshot.
+      if (
+        talkback_manager_ != nullptr &&
+        (state == livekit::ConnectionState::Connected || state == livekit::ConnectionState::Reconnecting))
+      {
+        talkback_manager_->onRoomGenerationChanged();
+      }
+      watchdog_.onStateChanged(state);
+    });
   };
   callbacks.on_user_packet_received = [this](const livekit::UserDataPacketEvent & event) {
     (void)callback_gate_.run([this, &event]() { onUserPacketReceived(event); });
   };
   callbacks.on_participant_disconnected = [this](const livekit::ParticipantDisconnectedEvent & event) {
     (void)callback_gate_.run([this, &event]() {
+      if (talkback_manager_ != nullptr) {
+        talkback_manager_->onParticipantDisconnected(event);
+      }
       std::string identity = event.participant->identity();
       submitRosWork([this, identity = std::move(identity)]() { ros_service_caller_.cancelForRequester(identity); });
     });
   };
+
+  // Talkback track events run on SDK delegate threads and are wrapped in
+  // callback_gate_ like every other callback. They only log, subscribe, and
+  // feed the sink; no ROS work is submitted.
+  if (talkback_manager_ != nullptr) {
+    audio::TalkbackManager * talkback_manager = talkback_manager_.get();
+    callbacks.on_remote_track_published = [this, talkback_manager](const RemoteTrackEvent & event) {
+      (void)callback_gate_.run([talkback_manager, &event]() { talkback_manager->onRemoteTrackPublished(event); });
+    };
+    callbacks.on_remote_track_unpublished = [this, talkback_manager](const RemoteTrackEvent & event) {
+      (void)callback_gate_.run([talkback_manager, &event]() { talkback_manager->onRemoteTrackUnpublished(event); });
+    };
+    callbacks.on_remote_track_subscribed = [this, talkback_manager](const RemoteTrackEvent & event) {
+      (void)callback_gate_.run([talkback_manager, &event]() { talkback_manager->onRemoteTrackSubscribed(event); });
+    };
+    callbacks.on_remote_track_unsubscribed = [this, talkback_manager](const RemoteTrackEvent & event) {
+      (void)callback_gate_.run([talkback_manager, &event]() { talkback_manager->onRemoteTrackUnsubscribed(event); });
+    };
+  }
 
   return callbacks;
 }

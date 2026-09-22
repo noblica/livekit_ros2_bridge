@@ -90,3 +90,11 @@ livekit_ros2_bridge:
     #
     # Test source (no microphone needed):
     # audio.other.test.source: "audiotestsrc is-live=true wave=sine"
+
+    # Optional operator talkback playback. Leave empty (default) to disable
+    # talkback entirely. A non-empty GStreamer sink fragment plays the
+    # operator's mic track (lkros.audio.operator) out of the robot's speaker
+    # and advertises "talkback" through lkros.capability. The fragment is
+    # inserted after the bridge-owned appsrc/queue/convert/resample stages and
+    # must not contain appsrc or appsink.
+    # audio.sink: "alsasink device=hw:0,0"

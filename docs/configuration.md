@@ -17,10 +17,12 @@ If a change affects LiveKit connection settings, access rules, QoS override matc
   - [Audio](#audio)
     - [Defaults](#audio-defaults)
     - [Other audio sources](#other-audio-sources)
+    - [Talkback](#talkback)
   - [QoS](#qos)
 - [Common scenarios](#common-scenarios)
   - [RTSP or device inputs](#rtsp-or-device-inputs)
   - [Cab microphones](#cab-microphones)
+  - [Operator talkback](#operator-talkback)
 
 ## Reference
 
@@ -215,6 +217,30 @@ Lookup notes:
 - other audio track names percent-encode bytes outside RFC 3986 unreserved characters
 - other audio sources are not gated by `access.rules.subscribe.*`; availability is controlled by which ids exist in `audio_other_ids` and `audio.other.*`
 
+#### Talkback
+
+| Parameter | Default | Allowed values | Notes |
+| --- | --- | --- | --- |
+| `audio.sink` | `""` | non-empty GStreamer sink fragment | Operator talkback playback pipeline. Empty (default) disables talkback entirely. |
+
+Behavior notes:
+
+- talkback is disabled by default; the feature never half-works on robots without speakers
+- a non-empty `audio.sink` enables the feature and advertises `talkback: true` through the [`lkros.capability`](protocol.md#rpc-lkroscapability) RPC, so client UIs show the Talk control only where it can work
+- the bridge connects with auto-subscribe disabled and subscribes only to the fixed-name Talkback Track (`lkros.audio.operator`); other published media is never received
+- the bridge performs no identity checks on the talkback publisher; who may publish is enforced by the application layer
+- the playback pipeline is `appsrc ! queue max-size-time=100ms leaky=downstream ! audioconvert ! audioresample ! <audio.sink>`; the fragment is inserted verbatim after those bridge-owned stages
+- `audio.sink` must not define `appsrc` or `appsink`; the bridge owns those endpoints
+- output-device failures restart the pipeline at a bounded rate (~4/s) and only while audio is arriving; a missing device never crashes the node, never cycles while idle, and self-heals when audio arrives with the device restored
+- mute is silence-through: no bridge reaction, the speaker stays claimed until the track is unpublished
+
+Fragment notes:
+
+- raw ALSA (recommended v1 deployment): `alsasink device=...` with the device passed through into the container
+- a sound server (e.g. `pulsesink server=...`): needs the socket/environment plumbing in the deployment inventory
+- a networked speaker: any GStreamer sink fragment that terminates in an audio device
+- clock-disciplined sinks (anything syncing to the pipeline clock, e.g. `pulsesink` without `sync=false`) crackle at the 10 ms cadence; end the fragment with `sync=false` (e.g. `pulsesink sync=false`) unless the sink is clock-disciplined by design
+
 ### QoS
 
 | Parameter | Default | Allowed values | Notes |
@@ -348,3 +374,35 @@ Use `audio.other.*` when the bridge should ingest audio directly from GStreamer 
    - the track name is deterministic, for example `lkros.audio.other.left_mic`
    - if the source id contains reserved bytes, the track-name suffix is percent-encoded
    - if a client asks for a source that does not exist, the bridge reports `not_found`
+
+### Operator talkback
+
+Set `audio.sink` when the bridge should play the operator's voice through a speaker on the robot. The feature is off unless the fragment is configured.
+
+1. Configure the output device as one free-form GStreamer sink fragment.
+
+   ```yaml
+   livekit_ros2_bridge:
+     ros__parameters:
+       audio.sink: "alsasink device=hw:0,0"
+   ```
+
+   - the fragment is deployment's choice: raw ALSA, a sound server, or a networked speaker — bridge code is identical either way
+   - do not put `appsrc` or `appsink` into the fragment; the bridge owns those endpoints and prepends its own appsrc/queue/convert/resample stages
+   - the container needs access to the audio device (e.g. `devices: ["/dev/snd"]` in the service spec); that is deployment inventory, not a bridge parameter
+
+2. Expect the feature to be discoverable.
+
+   - `lkros.capability` answers `{"v": 2, "features": {"talkback": true}}`
+   - with `audio.sink` empty (or absent), `features` is `{}` and no track is ever subscribed
+
+3. Expect the client side to be self-enforcing.
+
+   - the client publishes its mic track as `lkros.audio.operator` when its operator holds the control lease and unpublishes on lease loss; the bridge rebinds its speaker to the next operator track's first frame
+   - a second live operator track is logged and dropped; it never steals the speaker
+   - the bridge performs no identity checks on the publisher
+
+4. Expect bounded, self-healing playback.
+
+   - a missing output device restarts the pipeline at ~4/s only while audio arrives, never on an idle robot, and never crashes the node
+   - plugging the speaker in mid-conversation restores talkback without a node restart

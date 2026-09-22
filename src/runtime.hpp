@@ -18,6 +18,7 @@
 #include <memory>
 #include <string>
 
+#include "audio/talkback_manager.hpp"
 #include "connection_watchdog.hpp"
 #include "rclcpp/clock.hpp"
 #include "rclcpp/logger.hpp"
@@ -77,6 +78,7 @@ private:
   RosTopicPublisher ros_topic_publisher_;
   RosServiceCaller ros_service_caller_;
   SubscriptionLeaseManager subscription_lease_manager_;
+  std::unique_ptr<audio::TalkbackManager> talkback_manager_;
   RpcRouter rpc_router_;
   ConnectionWatchdog watchdog_;
 };

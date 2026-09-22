@@ -153,6 +153,9 @@ RuntimeConfig loadRuntimeConfig(const rclcpp::node_interfaces::NodeParametersInt
     stage = "audio_config";
     config.audio_stream = audio::loadConfig(params);
 
+    stage = "talkback_config";
+    config.talkback.sink_fragment = trim(params.audio.sink);
+
     return config;
   } catch (...) {
     LogEvent(kLogger, "node_config_load_failed")

@@ -768,4 +768,65 @@ TEST_F(RuntimeTest, ShutdownWaitsForRunningPublishTrackBeforeClearingSubscriptio
   EXPECT_EQ(harness.state->published_data_track_names.size(), 1U);
 }
 
+TEST_F(RuntimeTest, CapabilityAdvertisesTalkbackOnlyWithSinkConfigured)
+{
+  auto configured_options = makeStaticTokenOptions();
+  configured_options.append_parameter_override("audio.sink", "fakesink sync=false");
+  auto configured_harness = makeRuntimeHarness(configured_options);
+
+  const auto handler_it = configured_harness.state->rpc_handlers.find(protocol::kCapabilityMethod);
+  ASSERT_TRUE(handler_it != configured_harness.state->rpc_handlers.end());
+  livekit::RpcInvocationData invocation;
+  invocation.caller_identity = "";
+  invocation.payload = "{}";
+  invocation.request_id = "capability-request";
+  invocation.response_timeout_sec = 0.0;
+  const auto response = handler_it->second(invocation);
+  ASSERT_TRUE(response.has_value());
+  const auto body = nlohmann::json::parse(*response);
+  ASSERT_TRUE(body["features"].contains("talkback"));
+  EXPECT_EQ(body["features"]["talkback"], true);
+  EXPECT_EQ(body["v"], protocol::kProtocolVersion);
+
+  configured_harness.runtime.reset();
+
+  // Without `audio.sink`, the feature must be absent entirely.
+  auto default_harness = makeRuntimeHarness(makeStaticTokenOptions());
+  const auto default_handler_it = default_harness.state->rpc_handlers.find(protocol::kCapabilityMethod);
+  ASSERT_TRUE(default_handler_it != default_harness.state->rpc_handlers.end());
+  const auto default_response = default_handler_it->second(invocation);
+  ASSERT_TRUE(default_response.has_value());
+  const auto default_body = nlohmann::json::parse(*default_response);
+  EXPECT_FALSE(default_body["features"].contains("talkback"));
+}
+
+TEST_F(RuntimeTest, TalkbackTrackEventsSubscribeOnlyOperatorTracks)
+{
+  auto options = makeStaticTokenOptions();
+  options.append_parameter_override("audio.sink", "fakesink sync=false");
+  auto harness = makeRuntimeHarness(options);
+  harness.fake_room_connection->emitConnected();
+
+  // The Talkback Track publish triggers exactly one subscribe call.
+  harness.fake_room_connection->emitRemoteTrackPublished("operator-1", "PA_op", protocol::kTalkbackTrackName);
+  ASSERT_EQ(harness.state->subscribe_remote_track_calls.size(), 1U);
+  EXPECT_EQ(
+    harness.state->subscribe_remote_track_calls.front(), (std::pair<std::string, std::string>{"operator-1", "PA_op"}));
+
+  // A second, non-operator publication is never subscribed.
+  harness.fake_room_connection->emitRemoteTrackPublished("spectator-1", "PA_other", "unrelated_feed");
+  EXPECT_EQ(harness.state->subscribe_remote_track_calls.size(), 1U);
+}
+
+TEST_F(RuntimeTest, TalkbackShutdownTearsDownBeforeRoomStop)
+{
+  auto options = makeStaticTokenOptions();
+  options.append_parameter_override("audio.sink", "fakesink sync=false");
+  auto harness = makeRuntimeHarness(options);
+
+  harness.runtime.reset();
+
+  expectRpcUnregistersBeforeStop(*harness.state);
+}
+
 }  // namespace livekit_ros2_bridge

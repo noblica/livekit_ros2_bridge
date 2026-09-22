@@ -621,4 +621,21 @@ TEST_F(RuntimeConfigTest, DuplicateAudioIdsReportSectionSpecificErrors)
   expectConfigError("startup_config_duplicate_audio_other_id", options, "duplicate other audio id 'cab_mic'");
 }
 
+TEST_F(RuntimeConfigTest, TalkbackDefaultsToDisabled)
+{
+  const RuntimeConfig config = loadRuntimeConfigForNode("startup_config_talkback_default", makeStaticTokenOptions());
+
+  EXPECT_TRUE(config.talkback.sink_fragment.empty());
+}
+
+TEST_F(RuntimeConfigTest, TalkbackLoadsAndTrimsSinkFragment)
+{
+  auto options = makeStaticTokenOptions();
+  options.append_parameter_override("audio.sink", "  alsasink device=hw:0,0  ");
+
+  const RuntimeConfig config = loadRuntimeConfigForNode("startup_config_talkback_sink", options);
+
+  EXPECT_EQ(config.talkback.sink_fragment, "alsasink device=hw:0,0");
+}
+
 }  // namespace livekit_ros2_bridge
