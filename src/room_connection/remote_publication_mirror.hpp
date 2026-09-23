@@ -76,11 +76,11 @@ public:
 
   std::optional<Record> find(const std::string & track_sid) const
   {
-    const auto it = records_.find(track_sid);
-    if (it == records_.end()) {
+    const auto record = records_.find(track_sid);
+    if (record == records_.end()) {
       return std::nullopt;
     }
-    return it->second;
+    return record->second;
   }
 
   bool contains(const std::string & track_sid) const
@@ -95,22 +95,22 @@ public:
 
   void eraseIdentity(const std::string & participant_identity)
   {
-    for (auto it = records_.begin(); it != records_.end();) {
-      if (it->second.entry.participant_identity == participant_identity) {
-        it = records_.erase(it);
+    for (auto record = records_.begin(); record != records_.end();) {
+      if (record->second.entry.participant_identity == participant_identity) {
+        record = records_.erase(record);
         continue;
       }
-      ++it;
+      ++record;
     }
   }
 
   void setSubscribed(const std::string & track_sid, bool subscribed)
   {
-    const auto it = records_.find(track_sid);
-    if (it == records_.end()) {
+    const auto record = records_.find(track_sid);
+    if (record == records_.end()) {
       return;
     }
-    it->second.entry.subscribed = subscribed;
+    record->second.entry.subscribed = subscribed;
   }
 
   void clear()
@@ -142,16 +142,16 @@ private:
       return false;
     }
 
-    const auto it = records_.find(candidate.entry.track_sid);
-    if (it == records_.end()) {
+    const auto existing = records_.find(candidate.entry.track_sid);
+    if (existing == records_.end()) {
       records_.emplace(candidate.entry.track_sid, candidate);
       return true;
     }
 
-    it->second.entry = candidate.entry;
+    existing->second.entry = candidate.entry;
     // Keep a good handle when an update arrives without one (never clobber it with null).
     if (candidate.handle != nullptr) {
-      it->second.handle = candidate.handle;
+      existing->second.handle = candidate.handle;
     }
     return false;
   }

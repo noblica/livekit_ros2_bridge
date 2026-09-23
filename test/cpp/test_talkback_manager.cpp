@@ -206,7 +206,7 @@ public:
   bool read(livekit::AudioFrameEvent & out_event) override
   {
     std::unique_lock<std::mutex> lock(mutex_);
-    cv_.wait(lock, [this]() { return !queue_.empty() || eos_ || closed_ || throw_on_read_; });
+    state_changed_.wait(lock, [this]() { return !queue_.empty() || eos_ || closed_ || throw_on_read_; });
     if (throw_on_read_) {
       throw_on_read_ = false;
       throw std::runtime_error("simulated read failure");
@@ -225,7 +225,7 @@ public:
       std::lock_guard<std::mutex> lock(mutex_);
       closed_ = true;
     }
-    cv_.notify_all();
+    state_changed_.notify_all();
   }
 
   void pushFrame(int sample_rate, int channels, int samples_per_channel)
@@ -238,7 +238,7 @@ public:
       std::lock_guard<std::mutex> lock(mutex_);
       queue_.push_back(std::move(event));
     }
-    cv_.notify_all();
+    state_changed_.notify_all();
   }
 
   void pushEos()
@@ -247,7 +247,7 @@ public:
       std::lock_guard<std::mutex> lock(mutex_);
       eos_ = true;
     }
-    cv_.notify_all();
+    state_changed_.notify_all();
   }
 
   void failNextRead()
@@ -256,7 +256,7 @@ public:
       std::lock_guard<std::mutex> lock(mutex_);
       throw_on_read_ = true;
     }
-    cv_.notify_all();
+    state_changed_.notify_all();
   }
 
   bool isClosed() const
@@ -267,7 +267,7 @@ public:
 
 private:
   mutable std::mutex mutex_;
-  std::condition_variable cv_;
+  std::condition_variable state_changed_;
   std::deque<livekit::AudioFrameEvent> queue_;
   bool eos_ = false;
   bool closed_ = false;
@@ -666,23 +666,23 @@ TEST_F(TalkbackManagerTest, FullRestartResubscribesTheRepublishedTrack)
   EXPECT_NE(sink->owner(), old_owner);
 }
 
-TEST_F(TalkbackManagerTest, CleanupPathsStopReaders)
+TEST_F(TalkbackManagerTest, CleanupEventsAfterTheReaderIsGoneAreHarmless)
 {
   FakeRoomConnection connection;
-  {
-    TalkbackManager manager(connection, kTestSinkFragment);
-    auto track = connection.makeSyntheticRemoteTrack();
-    // No frames arrive in this test, so no reader thread outlives the manager.
-    manager.onRemoteTrackSubscribed(subscribedOperatorEvent("participant-1", track));
+  auto sink = std::make_shared<FakeTalkbackSink>();
+  FakeStreamFactory factory;
+  TalkbackManager manager(connection, sink, factory.make());
 
-    // Reader registered for the operator track; unpublish tears it down.
-    manager.onRemoteTrackUnpublished(unpublishedOperatorEvent("participant-1", track->sid()));
+  auto track = connection.makeSyntheticRemoteTrack();
+  manager.onRemoteTrackSubscribed(subscribedOperatorEvent("participant-1", track));
+  manager.onRemoteTrackUnpublished(unpublishedOperatorEvent("participant-1", track->sid()));
+  ASSERT_TRUE(factory.created.front()->isClosed());
 
-    // All cleanup paths accept events after the corresponding reader is gone.
-    manager.onRemoteTrackUnsubscribed(subscribedOperatorEvent("participant-1", track));
-    connection.emitParticipantDisconnected("participant-1");
-  }
-  SUCCEED();
+  // Later cleanup events for the same track neither start a reader nor claim the sink.
+  manager.onRemoteTrackUnsubscribed(subscribedOperatorEvent("participant-1", track));
+  manager.onParticipantDisconnected(makeDisconnectedEvent("participant-1"));
+  EXPECT_EQ(factory.created.size(), 1U);
+  EXPECT_EQ(sink->owner(), 0U);
 }
 
 TEST_F(TalkbackManagerTest, ParticipantDisconnectIsSafeWithoutReaders)
@@ -697,17 +697,16 @@ TEST_F(TalkbackManagerTest, ParticipantDisconnectIsSafeWithoutReaders)
 TEST_F(TalkbackManagerTest, NonOperatorSubscribedTrackIsIgnored)
 {
   FakeRoomConnection connection;
-  TalkbackManager manager(connection, kTestSinkFragment);
+  auto sink = std::make_shared<FakeTalkbackSink>();
+  FakeStreamFactory factory;
+  TalkbackManager manager(connection, sink, factory.make());
 
   auto track = connection.makeSyntheticRemoteTrack();
   manager.onRemoteTrackSubscribed(
     RemoteTrackEvent{
       "participant-1", track->sid(), "lkros.audio.other.cab_mic", livekit::TrackKind::KIND_AUDIO, track});
 
-  // No reader work observable; the manager simply does not track foreign names.
-  manager.onRemoteTrackUnpublished(
-    RemoteTrackEvent{
-      "participant-1", track->sid(), "lkros.audio.other.cab_mic", livekit::TrackKind::KIND_AUDIO, nullptr});
+  EXPECT_TRUE(factory.created.empty());
 }
 
 // Stress the destructor's reader-drain wait: a regression in the wait/notify

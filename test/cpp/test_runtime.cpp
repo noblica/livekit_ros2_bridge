@@ -864,17 +864,18 @@ TEST_F(RuntimeTest, TalkbackFullRestartResubscribesOnlyOnConnected)
     harness.state->subscribe_remote_track_calls.back(), (std::pair<std::string, std::string>{"operator-1", "PA_op"}));
 }
 
-TEST_F(RuntimeTest, TalkbackSubscriptionFailureIsForwardedToManager)
+TEST_F(RuntimeTest, TalkbackWiresSubscriptionFailuresOnlyWhenConfigured)
 {
   auto options = makeStaticTokenOptions();
   options.append_parameter_override("audio.sink", "fakesink sync=false");
-  auto harness = makeRuntimeHarness(options);
-  harness.fake_room_connection->emitConnected();
+  auto talkback_harness = makeRuntimeHarness(options);
+  EXPECT_TRUE(static_cast<bool>(talkback_harness.state->callbacks.on_remote_track_subscription_failed));
 
-  EXPECT_NO_THROW(harness.fake_room_connection->emitRemoteTrackSubscriptionFailed("operator-1", "PA_op", "denied"));
+  auto plain_harness = makeRuntimeHarness(makeStaticTokenOptions());
+  EXPECT_FALSE(static_cast<bool>(plain_harness.state->callbacks.on_remote_track_subscription_failed));
 }
 
-TEST_F(RuntimeTest, TalkbackShutdownTearsDownBeforeRoomStop)
+TEST_F(RuntimeTest, TalkbackEnabledShutdownUnregistersRpcsBeforeRoomStop)
 {
   auto options = makeStaticTokenOptions();
   options.append_parameter_override("audio.sink", "fakesink sync=false");

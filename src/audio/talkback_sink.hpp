@@ -23,6 +23,7 @@
 #include <mutex>
 #include <string>
 
+#include "rclcpp/clock.hpp"
 #include "utils/gstreamer_resources.hpp"
 #include "utils/pipeline_failure_handler.hpp"
 
@@ -144,6 +145,8 @@ private:
   // schedule) must stay lock-free against this mutex: the sync bus handler can
   // fire from inside startPipelineLocked() while a caller holds it.
   std::mutex mutex_;
+  // Throttles the ~4/s restart-failure log while the device is gone.
+  rclcpp::Clock log_clock_{RCL_STEADY_TIME};
   utils::GstElementPtr pipeline_;
   utils::GstElementPtr appsrc_element_;
   int caps_rate_ = 0;

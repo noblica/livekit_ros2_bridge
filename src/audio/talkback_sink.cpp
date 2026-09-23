@@ -31,6 +31,7 @@ namespace
 
 const auto kLogger = rclcpp::get_logger("livekit_ros2_bridge.talkback_sink");
 constexpr auto kRestartDelay = std::chrono::milliseconds(250);
+constexpr auto kRestartFailureLogThrottle = std::chrono::seconds(5);
 
 }  // namespace
 
@@ -95,12 +96,12 @@ bool TalkbackSink::bind(std::uint64_t reader_id, int sample_rate, int num_channe
     caps_channels_ = num_channels;
     try {
       startPipelineLocked();
-    } catch (const std::exception & exc) {
+    } catch (const std::exception & exception) {
       // A sink that is dead at bind time is not a binding failure: keep the claim so the owning
       // reader's live frame cadence re-arms the restart loop (push() schedules while the pipeline
       // is down) and playback self-heals when the device returns. Ownership is released only by
       // unbind()/reader finalize or stop().
-      LogEvent(kLogger, "talkback_sink_start_failed").fieldOr("error", exc.what()).warn();
+      LogEvent(kLogger, "talkback_sink_start_failed").fieldOr("error", exception.what()).warn();
       stopPipelineLocked();
     }
   }
@@ -124,9 +125,7 @@ void TalkbackSink::push(std::uint64_t reader_id, const std::int16_t * samples, s
   // push cadence retries schedule() until the handler accepts it. Lock-free
   // (see pipeline_active_ note in the header).
   //
-  // Deliberate divergence from the POC's "production should re-arm via a timer,
-  // not the audio cadence" (operator-talkback-poc-results.md §7 correction #4).
-  // The cadence is the right driver here: restarting only matters while frames
+  // The frame cadence, not a timer, drives the re-arm: restarting only matters while frames
   // are arriving, and a dead device with no publisher should not cycle at all.
   // A timer would need a frame-independent lifecycle this sink does not have;
   // re-arming from the one thread that owns the pipeline is simpler and keeps
@@ -264,11 +263,13 @@ void TalkbackSink::restartPipeline()
   stopPipelineLocked();
   try {
     startPipelineLocked();
-  } catch (const std::exception & exc) {
+  } catch (const std::exception & exception) {
     // No retry cap: a permanently missing device restarts at ~4/s, bounded by
     // the 250 ms delay, while audio keeps arriving. Idle robots never restart:
     // re-arms come only from live frames on the track.
-    LogEvent(kLogger, "talkback_sink_restart_failed").fieldOr("error", exc.what()).warn();
+    LogEvent(kLogger, "talkback_sink_restart_failed")
+      .fieldOr("error", exception.what())
+      .warnThrottle(log_clock_, kRestartFailureLogThrottle);
   }
 }
 

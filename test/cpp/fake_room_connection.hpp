@@ -97,7 +97,6 @@ struct FakeRoomConnectionState
   bool throw_on_send_byte_stream = false;
 
   std::vector<std::pair<std::string, std::string>> subscribe_remote_track_calls;
-  std::vector<std::pair<std::string, std::string>> unsubscribe_remote_track_calls;
 
   std::function<void(FakeRoomConnection & connection)> stop_hook;
   std::function<std::shared_ptr<livekit::LocalDataTrack>(const std::string & name)> publish_data_track_handler;
@@ -356,19 +355,12 @@ public:
   {
     std::lock_guard<std::mutex> lock(mutex_);
     state->subscribe_remote_track_calls.push_back({participant_identity, track_sid});
-    const auto it = remote_subscribable_.find(participant_identity + ":" + track_sid);
-    const bool subscribable = it != remote_subscribable_.end() ? it->second : true;
+    const auto configured = remote_subscribable_.find(participant_identity + ":" + track_sid);
+    const bool subscribable = configured != remote_subscribable_.end() ? configured->second : true;
     if (subscribable) {
       setSnapshotSubscribedLocked(track_sid, true);
     }
     return subscribable;
-  }
-
-  void unsubscribeRemoteTrack(const std::string & participant_identity, const std::string & track_sid) override
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    state->unsubscribe_remote_track_calls.push_back({participant_identity, track_sid});
-    setSnapshotSubscribedLocked(track_sid, false);
   }
 
   // The snapshot models SdkRoomConnection's publication mirror: a successful subscribeRemoteTrack()
@@ -632,10 +624,10 @@ public:
   {
     struct FakeRemoteTrack final : public livekit::Track
     {
-      FakeRemoteTrack(livekit::TrackKind track_kind, std::string sid)
+      FakeRemoteTrack(livekit::TrackKind track_kind, std::string track_sid)
       : livekit::Track(
           livekit::FfiHandle{},
-          std::move(sid),
+          std::move(track_sid),
           "fake-track-name",
           track_kind,
           livekit::StreamState::STATE_ACTIVE,

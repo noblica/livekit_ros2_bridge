@@ -113,7 +113,7 @@ TalkbackManager::~TalkbackManager()
   // wait_mutex_. Once it reaches zero no thread can still be inside LiveKit FFI
   // or touch this manager again.
   std::unique_lock<std::mutex> wait_lock(wait_mutex_);
-  wait_cv_.wait(wait_lock, [this]() { return live_readers_.load(std::memory_order_acquire) == 0; });
+  reader_exited_.wait(wait_lock, [this]() { return live_readers_.load(std::memory_order_acquire) == 0; });
 }
 
 void TalkbackManager::onRemoteTrackPublished(const RemoteTrackEvent & event)
@@ -154,15 +154,17 @@ void TalkbackManager::onRemoteTrackUnpublished(const RemoteTrackEvent & event)
     return;
   }
 
+  if (event.track_name != protocol::kTalkbackTrackName) {
+    return;
+  }
+
   LogEvent(kLogger, "remote_track_unpublished")
     .fieldOr("participant_identity", event.participant_identity)
     .fieldOr("track_sid", event.track_sid)
     .fieldQuoted("track_name", event.track_name)
     .info();
 
-  if (event.track_name == protocol::kTalkbackTrackName) {
-    stopReader(event.track_sid, "track_unpublished");
-  }
+  stopReader(event.track_sid, "track_unpublished");
 }
 
 void TalkbackManager::onRemoteTrackSubscribed(const RemoteTrackEvent & event)
@@ -346,11 +348,11 @@ void TalkbackManager::subscribeOperatorTrack(const RemoteTrackEvent & event)
         sink.reset();
         // Decrement and notify under wait_mutex_: the destructor can neither
         // slip between its predicate check and its wait and miss the wakeup,
-        // nor observe zero and free wait_cv_ before notify_all() returns.
+        // nor observe zero and free reader_exited_ before notify_all() returns.
         // Nothing after the unlock may touch a member.
         std::lock_guard<std::mutex> exit_lock(wait_mutex_);
         live_readers_.fetch_sub(1, std::memory_order_acq_rel);
-        wait_cv_.notify_all();
+        reader_exited_.notify_all();
       });
 
       // One backstop for the whole body: read()/bind()/push() are SDK/GStreamer
@@ -425,7 +427,7 @@ void TalkbackManager::subscribeOperatorTrack(const RemoteTrackEvent & event)
       // takes before it waits.
       std::lock_guard<std::mutex> exit_lock(wait_mutex_);
       live_readers_.fetch_sub(1, std::memory_order_acq_rel);
-      wait_cv_.notify_all();
+      reader_exited_.notify_all();
     }
     {
       std::lock_guard<std::mutex> lock(mutex_);
@@ -444,12 +446,12 @@ void TalkbackManager::stopReader(const std::string & track_sid, const char * rea
   std::shared_ptr<Reader> reader;
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    const auto it = readers_.find(track_sid);
-    if (it == readers_.end()) {
+    const auto entry = readers_.find(track_sid);
+    if (entry == readers_.end()) {
       return;
     }
-    reader = it->second;
-    readers_.erase(it);
+    reader = entry->second;
+    readers_.erase(entry);
   }
 
   reader->stop.store(true, std::memory_order_release);

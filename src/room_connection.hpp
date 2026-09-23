@@ -141,9 +141,6 @@ public:
   // means the subscription request could not be issued; the subscriber may retry on a later event.
   virtual bool subscribeRemoteTrack(const std::string & participant_identity, const std::string & track_sid) = 0;
 
-  // Drops one remote media subscription. Unknown or already-unsubscribed tracks are no-ops.
-  virtual void unsubscribeRemoteTrack(const std::string & participant_identity, const std::string & track_sid) = 0;
-
   // Snapshots the remote participants' media-track publications currently in the room so a
   // re-subscriber can recover state from after a (re)connect. Returns one entry per published
   // remote media track, including tracks the bridge has not subscribed to.

@@ -500,11 +500,11 @@ public:
     // setSubscribed() is a blocking FFI request; never hold mutex_ across it.
     try {
       plan.publication->setSubscribed(true);
-    } catch (const std::exception & exc) {
+    } catch (const std::exception & exception) {
       LogEvent(kLogger, "remote_track_subscribe_failed")
         .fieldOr("participant_identity", participant_identity)
         .fieldOr("track_sid", track_sid)
-        .field("error", exc.what())
+        .field("error", exception.what())
         .warn();
       return false;
     }
@@ -512,38 +512,6 @@ public:
     std::lock_guard<std::mutex> lock(mutex_);
     remote_publications_.markSubscribed(track_sid, true);
     return true;
-  }
-
-  void unsubscribeRemoteTrack(const std::string & participant_identity, const std::string & track_sid) override
-  {
-    if (participant_identity.empty() || track_sid.empty()) {
-      return;
-    }
-
-    SubscriptionPlan plan;
-    {
-      std::lock_guard<std::mutex> lock(mutex_);
-      plan = remote_publications_.planSetSubscribed(track_sid, false);
-    }
-
-    if (plan.action != SubscriptionAction::kRequest) {
-      return;
-    }
-
-    // setSubscribed() is a blocking FFI request; never hold mutex_ across it.
-    try {
-      plan.publication->setSubscribed(false);
-    } catch (const std::exception & exc) {
-      LogEvent(kLogger, "remote_track_unsubscribe_failed")
-        .fieldOr("participant_identity", participant_identity)
-        .fieldOr("track_sid", track_sid)
-        .field("error", exc.what())
-        .warn();
-      return;
-    }
-
-    std::lock_guard<std::mutex> lock(mutex_);
-    remote_publications_.markSubscribed(track_sid, false);
   }
 
   std::vector<RoomConnection::RemoteTrackSnapshotEntry> remoteTrackSnapshot() override
@@ -798,7 +766,7 @@ private:
     auto room = std::make_shared<livekit::Room>();
     room->setDelegate(this);
 
-    // The bridge subscribes only to tracks it names (ADR 0001); room-wide media
+    // The bridge subscribes only to tracks it names; room-wide media
     // reception was never a contract. Track events still arrive for publications
     // the bridge deliberately subscribes to.
     livekit::RoomOptions options;
