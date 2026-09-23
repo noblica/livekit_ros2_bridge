@@ -56,6 +56,7 @@ using TalkbackStreamFactory = std::function<std::shared_ptr<TalkbackAudioStream>
 // an unconfigured deployment never touches track events. Every cleanup path
 // (unsubscribe, unpublish, subscription failure, participant disconnect,
 // shutdown) tears down its readers; no orphaned reader threads remain. A
+// reader that ends on its own frees its slot but is not restarted. A
 // reconnect is not a cleanup path: an SDK resume keeps remote tracks and their
 // media alive, and a full restart unpublishes every remote track before it
 // reports Reconnecting, which ends those readers through the paths above.

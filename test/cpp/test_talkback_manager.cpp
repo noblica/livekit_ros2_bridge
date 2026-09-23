@@ -518,6 +518,48 @@ TEST_F(TalkbackManagerTest, ReadThrowIsCaughtAndUnbinds)
   ASSERT_TRUE(test_support::waitUntil([&]() { return sink->owner() == 0U; }));
 }
 
+TEST_F(TalkbackManagerTest, FailedReaderFreesItsSlotSoTheTrackCanResubscribe)
+{
+  FakeRoomConnection connection;
+  auto sink = std::make_shared<FakeTalkbackSink>();
+  FakeStreamFactory factory;
+  auto manager = std::make_unique<TalkbackManager>(connection, sink, factory.make());
+
+  auto track = connection.makeSyntheticRemoteTrack();
+  manager->onRemoteTrackSubscribed(subscribedOperatorEvent("participant-1", track));
+  ASSERT_EQ(factory.created.size(), 1U);
+
+  factory.created.front()->failNextRead();
+
+  // The reader closes its own stream once it has erased its slot.
+  ASSERT_TRUE(test_support::waitUntil([&]() { return factory.created.front()->isClosed(); }));
+
+  manager->onRemoteTrackSubscribed(subscribedOperatorEvent("participant-1", track));
+  ASSERT_EQ(factory.created.size(), 2U);
+
+  factory.created.back()->pushFrame(48000, 1, 480);
+  EXPECT_TRUE(test_support::waitUntil([&]() { return sink->owner() != 0U; }));
+}
+
+TEST_F(TalkbackManagerTest, EndOfStreamWithoutTrackEventFreesTheReaderSlot)
+{
+  FakeRoomConnection connection;
+  auto sink = std::make_shared<FakeTalkbackSink>();
+  FakeStreamFactory factory;
+  auto manager = std::make_unique<TalkbackManager>(connection, sink, factory.make());
+
+  auto track = connection.makeSyntheticRemoteTrack();
+  manager->onRemoteTrackSubscribed(subscribedOperatorEvent("participant-1", track));
+  ASSERT_EQ(factory.created.size(), 1U);
+
+  factory.created.front()->pushEos();
+
+  ASSERT_TRUE(test_support::waitUntil([&]() { return factory.created.front()->isClosed(); }));
+
+  manager->onRemoteTrackSubscribed(subscribedOperatorEvent("participant-1", track));
+  EXPECT_EQ(factory.created.size(), 2U);
+}
+
 TEST_F(TalkbackManagerTest, ConnectedResubscribesFromSnapshot)
 {
   FakeRoomConnection connection;

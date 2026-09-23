@@ -317,10 +317,20 @@ void TalkbackManager::subscribeOperatorTrack(const RemoteTrackEvent & event)
       bool first_frame_logged = false;
       bool sink_owned = false;
 
-      // Runs on every exit path, in order: release the sink claim, log the
-      // stop, drop this thread's references, then drop the live-reader count
-      // and wake the destructor.
+      // Runs on every exit path: free the slot, release the sink, drop
+      // references, then decrement the live-reader count.
       ScopeExit on_reader_exit([this, &reader, &stream, &sink, &track_sid, reader_id, &total_frames]() {
+        // Ended on its own: free the slot so a later subscribe is not ignored.
+        if (!reader->stop.load(std::memory_order_acquire)) {
+          {
+            std::lock_guard<std::mutex> lock(mutex_);
+            const auto entry = readers_.find(track_sid);
+            if (entry != readers_.end() && entry->second == reader) {
+              readers_.erase(entry);
+            }
+          }
+          stream->close();
+        }
         sink->unbind(reader_id);
         LogEvent(kLogger, "talkback_reader_stopped")
           .field("reader_id", reader_id)
@@ -358,7 +368,7 @@ void TalkbackManager::subscribeOperatorTrack(const RemoteTrackEvent & event)
               .field("reader_id", reader_id)
               .fieldOr("track_sid", track_sid)
               .fieldException("error", std::current_exception())
-              .warn();
+              .error();
             break;
           }
 
@@ -405,7 +415,7 @@ void TalkbackManager::subscribeOperatorTrack(const RemoteTrackEvent & event)
           .field("reader_id", reader_id)
           .fieldOr("track_sid", track_sid)
           .fieldException("error", std::current_exception())
-          .warn();
+          .error();
       }
     }).detach();
   } catch (...) {
