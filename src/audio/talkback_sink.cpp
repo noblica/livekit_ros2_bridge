@@ -180,6 +180,9 @@ void TalkbackSink::push(std::uint64_t reader_id, const std::int16_t * samples, s
 
 void TalkbackSink::unbind(std::uint64_t reader_id)
 {
+  // Release the claim under mutex_: a new owner's bind() then waits for this
+  // stop, so it cannot start its pipeline before this reader tears one down.
+  std::lock_guard<std::mutex> lock(mutex_);
   std::uint64_t expected = reader_id;
   if (!owner_.compare_exchange_strong(expected, 0)) {
     return;
@@ -189,7 +192,6 @@ void TalkbackSink::unbind(std::uint64_t reader_id)
   // coalesced restart could reopen the speaker after the operator's track
   // unpublishes. Cancel the queued restart so it cannot run at all;
   // restartPipeline()'s owner_ == 0 guard is the second line of defence.
-  std::lock_guard<std::mutex> lock(mutex_);
   stopPipelineLocked();
   failure_handler_.cancelPending();
 }
