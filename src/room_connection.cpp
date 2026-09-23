@@ -909,18 +909,12 @@ private:
     std::function<void(const RemoteTrackEvent &)> callback;
     {
       std::lock_guard<std::mutex> lock(mutex_);
-      // Only act on live publications while fully connected. The SDK rehydrates remote publications
-      // mid-reconnect; subscribing then sets the publication's subscribed flag without media able to
-      // flow, so the post-reconnect snapshot (which skips already-subscribed tracks) would never
-      // re-issue the request. Deferring to Connected lets onConnected re-subscribe.
-      if (state_ != livekit::ConnectionState::Connected) {
-        return;
-      }
-      callback = callbacks_.on_remote_track_published;
-      if (callback == nullptr) {
-        return;
-      }
-
+      // Merge into the mirror in every state; only forwarding waits for Connected (below). A full
+      // restart unpublishes every remote track before it reports Reconnecting, then re-announces
+      // them as TrackPublished while still Reconnecting (a resume sends no track events at all).
+      // onConnected re-subscribes from this mirror's snapshot, so a publication dropped here would
+      // stay silent for good. Merging now also means the null-publication recovery below will not
+      // re-emit it later as newly added; the Connected snapshot that follows covers it instead.
       if (event.publication != nullptr && !event.publication->sid().empty()) {
         const auto & publication = event.publication;
         remote_publications_.merge(
@@ -960,8 +954,18 @@ private:
             newly_added.participant_identity, newly_added.track_sid, newly_added.track_name, newly_added.track_kind));
         }
       }
+
+      // Forward only while fully connected, so after a reconnect onConnected's snapshot is the one
+      // place that re-subscribes, instead of subscribing against a session still being re-established.
+      if (state_ != livekit::ConnectionState::Connected) {
+        return;
+      }
+      callback = callbacks_.on_remote_track_published;
     }
 
+    if (callback == nullptr) {
+      return;
+    }
     for (const auto & remote_event : events) {
       callback(remote_event);
     }

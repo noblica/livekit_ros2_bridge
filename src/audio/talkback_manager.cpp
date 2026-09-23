@@ -241,24 +241,17 @@ void TalkbackManager::onParticipantDisconnected(const livekit::ParticipantDiscon
   }
 }
 
-void TalkbackManager::onReconnecting()
-{
-  std::lock_guard<std::mutex> event_lock(event_mutex_);
-  if (is_shutdown_.load(std::memory_order_acquire)) {
-    return;
-  }
-  // A reconnect replaces the SDK media session: every reader is stale. Tear
-  // them down and release the device, but do not subscribe until Connected.
-  stopAllReaders("room_reconnecting");
-}
-
 void TalkbackManager::onConnected()
 {
   std::lock_guard<std::mutex> event_lock(event_mutex_);
   if (is_shutdown_.load(std::memory_order_acquire)) {
     return;
   }
-  stopAllReaders("room_connected");
+  // Readers are deliberately not stopped here. After a resume the SDK keeps
+  // the subscribed track and its stream alive and sends no track events, so a
+  // stopped reader would never be recreated. After a full restart the old
+  // readers already ended on the unsubscribe/unpublish events the SDK sent
+  // before Reconnecting, and the re-announced track is picked up below.
   snapshotSubscribe();
 }
 
@@ -454,22 +447,6 @@ void TalkbackManager::stopReader(const std::string & track_sid, const char * rea
     reader->stream->close();
   }
   LogEvent(kLogger, "talkback_reader_stopping").fieldOr("track_sid", track_sid).field("reason", reason).info();
-}
-
-void TalkbackManager::stopAllReaders(const char * reason)
-{
-  std::vector<std::string> track_sids_to_stop;
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    track_sids_to_stop.reserve(readers_.size());
-    for (const auto & [track_sid, reader] : readers_) {
-      (void)reader;
-      track_sids_to_stop.push_back(track_sid);
-    }
-  }
-  for (const std::string & track_sid : track_sids_to_stop) {
-    stopReader(track_sid, reason);
-  }
 }
 
 void TalkbackManager::snapshotSubscribe()

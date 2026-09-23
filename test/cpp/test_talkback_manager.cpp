@@ -46,8 +46,8 @@ namespace
 // reader lifecycle out — never pipeline internals. The reader threads consume a
 // fake TalkbackAudioStream and bind a fake TalkbackSink, so the tests drive
 // frames synchronously without an audio device or the LiveKit FFI. The manager
-// is a plain object: tests call its handlers directly, the way Runtime's
-// callback wiring does.
+// is a plain object: tests call its handlers directly, or route the fake
+// connection's events into them, the way Runtime's callback wiring does.
 
 constexpr char kOperatorTrackName[] = "lkros.audio.operator";
 constexpr char kTestSinkFragment[] = "fakesink sync=false";
@@ -78,6 +78,36 @@ RemoteTrackEvent subscribedOperatorEvent(
 RemoteTrackEvent unpublishedOperatorEvent(const std::string & participant_identity, const std::string & track_sid)
 {
   return RemoteTrackEvent{participant_identity, track_sid, kOperatorTrackName, livekit::TrackKind::KIND_AUDIO, nullptr};
+}
+
+// Routes the fake connection's room events into the manager the way
+// Runtime::makeRoomCallbacks does, so the fake's publication snapshot and the
+// manager see the same SDK event sequence. The callbacks capture the manager
+// by reference, so nothing may be emitted after it is destroyed.
+void routeRoomEvents(FakeRoomConnection & connection, TalkbackManager & manager)
+{
+  RoomEventCallbacks callbacks;
+  callbacks.on_state_changed = [&manager](livekit::ConnectionState state) {
+    if (state == livekit::ConnectionState::Connected) {
+      manager.onConnected();
+    }
+  };
+  callbacks.on_participant_disconnected = [&manager](const livekit::ParticipantDisconnectedEvent & event) {
+    manager.onParticipantDisconnected(event);
+  };
+  callbacks.on_remote_track_published = [&manager](const RemoteTrackEvent & event) {
+    manager.onRemoteTrackPublished(event);
+  };
+  callbacks.on_remote_track_unpublished = [&manager](const RemoteTrackEvent & event) {
+    manager.onRemoteTrackUnpublished(event);
+  };
+  callbacks.on_remote_track_subscribed = [&manager](const RemoteTrackEvent & event) {
+    manager.onRemoteTrackSubscribed(event);
+  };
+  callbacks.on_remote_track_unsubscribed = [&manager](const RemoteTrackEvent & event) {
+    manager.onRemoteTrackUnsubscribed(event);
+  };
+  connection.start(LiveKitConfig{}, std::move(callbacks));
 }
 
 // Single-owner sink mirroring TalkbackSink's claim semantics: bind succeeds only
@@ -488,28 +518,6 @@ TEST_F(TalkbackManagerTest, ReadThrowIsCaughtAndUnbinds)
   ASSERT_TRUE(test_support::waitUntil([&]() { return sink->owner() == 0U; }));
 }
 
-TEST_F(TalkbackManagerTest, ReconnectingStopsReadersWithoutSubscribing)
-{
-  FakeRoomConnection connection;
-  auto sink = std::make_shared<FakeTalkbackSink>();
-  FakeStreamFactory factory;
-  TalkbackManager manager(connection, sink, factory.make());
-
-  connection.setRemoteTrackSnapshot({RoomConnection::RemoteTrackSnapshotEntry{
-    "participant-1", "PA_track1", kOperatorTrackName, livekit::TrackKind::KIND_AUDIO, false}});
-
-  auto track = connection.makeSyntheticRemoteTrack();
-  manager.onRemoteTrackSubscribed(subscribedOperatorEvent("participant-1", track));
-  factory.created.front()->pushFrame(48000, 1, 480);
-  ASSERT_TRUE(test_support::waitUntil([&]() { return sink->owner() != 0U; }));
-
-  manager.onReconnecting();
-
-  ASSERT_TRUE(test_support::waitUntil([&]() { return factory.created.front()->isClosed(); }));
-  ASSERT_TRUE(test_support::waitUntil([&]() { return sink->owner() == 0U; }));
-  EXPECT_TRUE(connection.state->subscribe_remote_track_calls.empty());
-}
-
 TEST_F(TalkbackManagerTest, ConnectedResubscribesFromSnapshot)
 {
   FakeRoomConnection connection;
@@ -530,19 +538,90 @@ TEST_F(TalkbackManagerTest, ConnectedResubscribesFromSnapshot)
   EXPECT_EQ(connection.state->subscribe_remote_track_calls.front().second, "PA_track1");
 }
 
-TEST_F(TalkbackManagerTest, ConnectedSkipsAlreadySubscribedOperatorTrack)
+// An SDK resume reports Reconnecting then Reconnected and nothing else: the
+// subscribed track and its media stay alive. The running reader must survive
+// untouched, and Connected must not re-request the subscription.
+TEST_F(TalkbackManagerTest, ResumeKeepsTheRunningReader)
 {
   FakeRoomConnection connection;
   auto sink = std::make_shared<FakeTalkbackSink>();
   FakeStreamFactory factory;
   TalkbackManager manager(connection, sink, factory.make());
+  routeRoomEvents(connection, manager);
 
+  auto track = connection.makeSyntheticRemoteTrack(livekit::TrackKind::KIND_AUDIO, "PA_op");
   connection.setRemoteTrackSnapshot({RoomConnection::RemoteTrackSnapshotEntry{
-    "participant-1", "PA_track1", kOperatorTrackName, livekit::TrackKind::KIND_AUDIO, true}});
+    "operator-1", "PA_op", kOperatorTrackName, livekit::TrackKind::KIND_AUDIO, false}});
+  connection.emitConnected();
+  ASSERT_EQ(connection.state->subscribe_remote_track_calls.size(), 1U);
+  connection.emitRemoteTrackSubscribed("operator-1", track, kOperatorTrackName);
+  ASSERT_EQ(factory.created.size(), 1U);
+  auto stream = factory.created.front();
 
-  manager.onConnected();
+  stream->pushFrame(48000, 1, 480);
+  ASSERT_TRUE(test_support::waitUntil([&]() { return sink->pushCount() >= 1U; }));
+  const std::uint64_t owner = sink->owner();
+  ASSERT_NE(owner, 0U);
 
-  EXPECT_TRUE(connection.state->subscribe_remote_track_calls.empty());
+  connection.emitReconnecting();
+  connection.emitReconnected();
+
+  EXPECT_EQ(connection.state->subscribe_remote_track_calls.size(), 1U);
+  EXPECT_EQ(factory.created.size(), 1U);
+  EXPECT_FALSE(stream->isClosed());
+
+  stream->pushFrame(48000, 1, 480);
+  ASSERT_TRUE(test_support::waitUntil([&]() { return sink->pushCount() >= 2U; }));
+  EXPECT_EQ(sink->owner(), owner);
+  EXPECT_FALSE(stream->isClosed());
+}
+
+// A full restart unpublishes every remote track while still Connected, reports
+// Reconnecting, re-announces the tracks while Reconnecting (not forwarded), and
+// then reports Reconnected. The old reader must stop on the teardown events and
+// Connected must subscribe the re-announced track, whose TrackSubscribed then
+// starts a fresh reader under the same sid.
+TEST_F(TalkbackManagerTest, FullRestartResubscribesTheRepublishedTrack)
+{
+  FakeRoomConnection connection;
+  auto sink = std::make_shared<FakeTalkbackSink>();
+  FakeStreamFactory factory;
+  TalkbackManager manager(connection, sink, factory.make());
+  routeRoomEvents(connection, manager);
+
+  connection.emitConnected();
+  connection.emitRemoteTrackPublished("operator-1", "PA_op", kOperatorTrackName);
+  ASSERT_EQ(connection.state->subscribe_remote_track_calls.size(), 1U);
+  auto old_track = connection.makeSyntheticRemoteTrack(livekit::TrackKind::KIND_AUDIO, "PA_op");
+  connection.emitRemoteTrackSubscribed("operator-1", old_track, kOperatorTrackName);
+  ASSERT_EQ(factory.created.size(), 1U);
+  auto old_stream = factory.created.front();
+  old_stream->pushFrame(48000, 1, 480);
+  ASSERT_TRUE(test_support::waitUntil([&]() { return sink->owner() != 0U; }));
+  const std::uint64_t old_owner = sink->owner();
+
+  connection.emitRemoteTrackUnsubscribed("operator-1", old_track, kOperatorTrackName);
+  connection.emitRemoteTrackUnpublished("operator-1", "PA_op", kOperatorTrackName);
+  connection.emitParticipantDisconnected("operator-1");
+  ASSERT_TRUE(test_support::waitUntil([&]() { return old_stream->isClosed(); }));
+  ASSERT_TRUE(test_support::waitUntil([&]() { return sink->owner() == 0U; }));
+
+  connection.emitReconnecting();
+  connection.emitRemoteTrackPublished("operator-1", "PA_op", kOperatorTrackName);
+  EXPECT_EQ(connection.state->subscribe_remote_track_calls.size(), 1U);
+
+  connection.emitReconnected();
+  ASSERT_EQ(connection.state->subscribe_remote_track_calls.size(), 2U);
+  EXPECT_EQ(
+    connection.state->subscribe_remote_track_calls.back(),
+    (std::pair<std::string, std::string>{"operator-1", "PA_op"}));
+
+  auto new_track = connection.makeSyntheticRemoteTrack(livekit::TrackKind::KIND_AUDIO, "PA_op");
+  connection.emitRemoteTrackSubscribed("operator-1", new_track, kOperatorTrackName);
+  ASSERT_EQ(factory.created.size(), 2U);
+  factory.created.back()->pushFrame(48000, 1, 480);
+  ASSERT_TRUE(test_support::waitUntil([&]() { return sink->owner() != 0U; }));
+  EXPECT_NE(sink->owner(), old_owner);
 }
 
 TEST_F(TalkbackManagerTest, CleanupPathsStopReaders)

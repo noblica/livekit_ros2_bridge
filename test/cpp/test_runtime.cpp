@@ -818,7 +818,7 @@ TEST_F(RuntimeTest, TalkbackTrackEventsSubscribeOnlyOperatorTracks)
   EXPECT_EQ(harness.state->subscribe_remote_track_calls.size(), 1U);
 }
 
-TEST_F(RuntimeTest, TalkbackReconnectResubscribesOnlyOnConnected)
+TEST_F(RuntimeTest, TalkbackResumeKeepsTheExistingSubscription)
 {
   auto options = makeStaticTokenOptions();
   options.append_parameter_override("audio.sink", "fakesink sync=false");
@@ -831,13 +831,37 @@ TEST_F(RuntimeTest, TalkbackReconnectResubscribesOnlyOnConnected)
   harness.fake_room_connection->emitConnected();
   EXPECT_EQ(harness.state->subscribe_remote_track_calls.size(), 1U);
 
-  // Reconnecting must tear readers down without issuing a subscription.
+  // A resume sends no track events; the track stays subscribed, so neither
+  // Reconnecting nor Reconnected issues another subscription.
   harness.fake_room_connection->emitReconnecting();
+  harness.fake_room_connection->emitReconnected();
+  EXPECT_EQ(harness.state->subscribe_remote_track_calls.size(), 1U);
+}
+
+TEST_F(RuntimeTest, TalkbackFullRestartResubscribesOnlyOnConnected)
+{
+  auto options = makeStaticTokenOptions();
+  options.append_parameter_override("audio.sink", "fakesink sync=false");
+  auto harness = makeRuntimeHarness(options);
+  harness.fake_room_connection->emitConnected();
+  harness.fake_room_connection->emitRemoteTrackPublished("operator-1", "PA_op", protocol::kTalkbackTrackName);
+  ASSERT_EQ(harness.state->subscribe_remote_track_calls.size(), 1U);
+
+  // A full restart unpublishes the track and disconnects its participant while
+  // still Connected, then re-announces it while Reconnecting.
+  auto track = harness.fake_room_connection->makeSyntheticRemoteTrack(livekit::TrackKind::KIND_AUDIO, "PA_op");
+  harness.fake_room_connection->emitRemoteTrackUnsubscribed("operator-1", track, protocol::kTalkbackTrackName);
+  harness.fake_room_connection->emitRemoteTrackUnpublished("operator-1", "PA_op", protocol::kTalkbackTrackName);
+  harness.fake_room_connection->emitParticipantDisconnected("operator-1");
+  harness.fake_room_connection->emitReconnecting();
+  harness.fake_room_connection->emitRemoteTrackPublished("operator-1", "PA_op", protocol::kTalkbackTrackName);
   EXPECT_EQ(harness.state->subscribe_remote_track_calls.size(), 1U);
 
-  // Reconnected (a fresh Connected) resubscribes from the snapshot.
+  // Reconnected subscribes the re-announced track from the snapshot.
   harness.fake_room_connection->emitReconnected();
-  EXPECT_EQ(harness.state->subscribe_remote_track_calls.size(), 2U);
+  ASSERT_EQ(harness.state->subscribe_remote_track_calls.size(), 2U);
+  EXPECT_EQ(
+    harness.state->subscribe_remote_track_calls.back(), (std::pair<std::string, std::string>{"operator-1", "PA_op"}));
 }
 
 TEST_F(RuntimeTest, TalkbackSubscriptionFailureIsForwardedToManager)

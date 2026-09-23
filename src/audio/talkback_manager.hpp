@@ -54,8 +54,11 @@ using TalkbackStreamFactory = std::function<std::shared_ptr<TalkbackAudioStream>
 //
 // Lifecycle: the manager is created only when `audio.sink` is configured, so
 // an unconfigured deployment never touches track events. Every cleanup path
-// (unsubscribe, unpublish, participant disconnect, room generation change,
-// shutdown) tears down its readers; no orphaned reader threads remain.
+// (unsubscribe, unpublish, subscription failure, participant disconnect,
+// shutdown) tears down its readers; no orphaned reader threads remain. A
+// reconnect is not a cleanup path: an SDK resume keeps remote tracks and their
+// media alive, and a full restart unpublishes every remote track before it
+// reports Reconnecting, which ends those readers through the paths above.
 class TalkbackManager
 {
 public:
@@ -80,10 +83,11 @@ public:
   void onRemoteTrackSubscriptionFailed(const RemoteTrackSubscriptionFailedEvent & event);
   void onParticipantDisconnected(const livekit::ParticipantDisconnectedEvent & event);
 
-  // Reconnect gating: a room replaced by reconnect invalidates every reader, so
-  // Reconnecting tears them down without subscribing, and Connected rebuilds
-  // subscriptions from the fresh snapshot. Both are idempotent.
-  void onReconnecting();
+  // Connected (the first connect or the end of a reconnect) subscribes every
+  // operator-named publication in the snapshot that is not yet subscribed:
+  // tracks already present at connect, and tracks a full-restart reconnect
+  // re-announced while Reconnecting, when publish events are not forwarded.
+  // Running readers are left alone, so a resume keeps playing. Idempotent.
   void onConnected();
 
 private:
@@ -97,7 +101,6 @@ private:
 
   void subscribeOperatorTrack(const RemoteTrackEvent & event);
   void stopReader(const std::string & track_sid, const char * reason);
-  void stopAllReaders(const char * reason);
   void snapshotSubscribe();
 
   RoomConnection & room_connection_;
