@@ -102,17 +102,7 @@ RoomEventCallbacks Runtime::makeRoomCallbacks()
 {
   RoomEventCallbacks callbacks;
   callbacks.on_state_changed = [this](livekit::ConnectionState state) {
-    (void)callback_gate_.run([this, state]() {
-      // Talkback readers survive a reconnect: a resume keeps remote tracks and
-      // their media alive, and a full restart ends them through the track and
-      // participant events the SDK sends before Reconnecting. Connected only
-      // subscribes operator tracks the snapshot reports as not yet subscribed,
-      // including any re-announced while Reconnecting.
-      if (talkback_manager_ != nullptr && state == livekit::ConnectionState::Connected) {
-        talkback_manager_->onConnected();
-      }
-      watchdog_.onStateChanged(state);
-    });
+    (void)callback_gate_.run([this, state]() { watchdog_.onStateChanged(state); });
   };
   callbacks.on_user_packet_received = [this](const livekit::UserDataPacketEvent & event) {
     (void)callback_gate_.run([this, &event]() { onUserPacketReceived(event); });
@@ -132,6 +122,11 @@ RoomEventCallbacks Runtime::makeRoomCallbacks()
   // feed the sink; no ROS work is submitted.
   if (talkback_manager_ != nullptr) {
     audio::TalkbackManager * talkback_manager = talkback_manager_.get();
+    // Readers survive a reconnect; catching up only subscribes operator tracks
+    // the snapshot reports as not yet subscribed, including re-announced ones.
+    callbacks.on_remote_tracks_ready = [this, talkback_manager]() {
+      (void)callback_gate_.run([talkback_manager]() { talkback_manager->onConnected(); });
+    };
     callbacks.on_remote_track_published = [this, talkback_manager](const RemoteTrackEvent & event) {
       (void)callback_gate_.run([talkback_manager, &event]() { talkback_manager->onRemoteTrackPublished(event); });
     };

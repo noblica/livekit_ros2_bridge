@@ -84,11 +84,9 @@ public:
   void onRemoteTrackSubscriptionFailed(const RemoteTrackSubscriptionFailedEvent & event);
   void onParticipantDisconnected(const livekit::ParticipantDisconnectedEvent & event);
 
-  // Connected (the first connect or the end of a reconnect) subscribes every
-  // operator-named publication in the snapshot that is not yet subscribed:
-  // tracks already present at connect, and tracks a full-restart reconnect
-  // re-announced while Reconnecting, when publish events are not forwarded.
-  // Running readers are left alone, so a resume keeps playing. Idempotent.
+  // Runs from on_remote_tracks_ready and subscribes every operator-named track
+  // the snapshot reports as unsubscribed, including ones a full restart
+  // re-announced while Reconnecting. Running readers are left alone. Idempotent.
   void onConnected();
 
 private:

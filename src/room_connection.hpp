@@ -49,9 +49,13 @@ struct LiveKitConfig
 
 struct RoomEventCallbacks
 {
-  // Connected comes from the SDK's own event, so handlers may call remoteTrackSnapshot() and
-  // subscribeRemoteTrack() from it.
+  // Bridge connection state. Connected means the SDK is connected and the room is activated (RPCs
+  // registered); each change is reported once, in order.
   std::function<void(livekit::ConnectionState)> on_state_changed;
+
+  // Fires inside the SDK's Connected/Reconnected event, before any later remote-track event, so a
+  // handler can catch up from remoteTrackSnapshot(). May fire before the bridge reports Connected.
+  std::function<void()> on_remote_tracks_ready;
 
   // Runs on a connection-managed thread, not necessarily a ROS executor thread.
   std::function<void(const livekit::UserDataPacketEvent &)> on_user_packet_received;
@@ -60,9 +64,9 @@ struct RoomEventCallbacks
   std::function<void(const livekit::ParticipantDisconnectedEvent &)> on_participant_disconnected;
 
   // Remote media track events, translated out of SDK publication objects so
-  // handlers never depend on publication lifetimes. With auto_subscribe off,
-  // these fire for every observed remote publication; `track` is set only on
-  // subscribed/unsubscribed events.
+  // handlers never depend on publication lifetimes. Forwarded only after remote
+  // tracks are ready and until the SDK disconnects; published events only while
+  // it is Connected. `track` is set only on subscribed/unsubscribed events.
   std::function<void(const struct RemoteTrackEvent &)> on_remote_track_published;
   std::function<void(const struct RemoteTrackEvent &)> on_remote_track_unpublished;
   std::function<void(const struct RemoteTrackEvent &)> on_remote_track_subscribed;
@@ -139,8 +143,8 @@ public:
   virtual void unpublishAudioTrack(const std::shared_ptr<livekit::LocalAudioTrack> & track) = 0;
 
   // subscribeRemoteTrack() and remoteTrackSnapshot() read the SDK's publication state, so they work
-  // only from inside a room-event callback (on_state_changed or a remote-track callback); elsewhere
-  // they log and return false or an empty snapshot.
+  // only from inside on_remote_tracks_ready or a remote-track callback; elsewhere they log and return
+  // false or an empty snapshot.
 
   // Requests media delivery for one already-published remote track by identity. A false return
   // means the subscription request could not be issued; the subscriber may retry on a later event.

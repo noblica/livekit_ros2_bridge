@@ -519,6 +519,8 @@ public:
     }
   }
 
+  // Like the real connection for an activated room: reports Connected, then fires
+  // on_remote_tracks_ready. A duplicate Connected fires neither.
   void emitConnected() const
   {
     emitConnectionState(livekit::ConnectionState::Connected);
@@ -649,6 +651,7 @@ private:
   void emitConnectionState(livekit::ConnectionState new_state) const
   {
     std::function<void(livekit::ConnectionState)> callback;
+    std::function<void()> ready_callback;
     {
       std::lock_guard<std::mutex> lock(mutex_);
       if (state->connection_state == new_state) {
@@ -656,9 +659,15 @@ private:
       }
       state->connection_state = new_state;
       callback = state->callbacks.on_state_changed;
+      if (new_state == livekit::ConnectionState::Connected) {
+        ready_callback = state->callbacks.on_remote_tracks_ready;
+      }
     }
     if (callback) {
       callback(new_state);
+    }
+    if (ready_callback) {
+      ready_callback();
     }
   }
 

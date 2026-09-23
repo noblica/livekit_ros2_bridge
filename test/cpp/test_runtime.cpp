@@ -838,6 +838,24 @@ TEST_F(RuntimeTest, TalkbackResumeKeepsTheExistingSubscription)
   EXPECT_EQ(harness.state->subscribe_remote_track_calls.size(), 1U);
 }
 
+TEST_F(RuntimeTest, TalkbackCatchUpRunsOnRemoteTracksReadyNotOnStateChange)
+{
+  auto options = makeStaticTokenOptions();
+  options.append_parameter_override("audio.sink", "fakesink sync=false");
+  auto harness = makeRuntimeHarness(options);
+  harness.fake_room_connection->setRemoteTrackSnapshot({RoomConnection::RemoteTrackSnapshotEntry{
+    "operator-1", "PA_op", protocol::kTalkbackTrackName, livekit::TrackKind::KIND_AUDIO, false}});
+
+  // The bridge state only feeds the watchdog; the snapshot is read only where it is safe.
+  harness.state->callbacks.on_state_changed(livekit::ConnectionState::Connected);
+  EXPECT_TRUE(harness.state->subscribe_remote_track_calls.empty());
+
+  harness.state->callbacks.on_remote_tracks_ready();
+  ASSERT_EQ(harness.state->subscribe_remote_track_calls.size(), 1U);
+  EXPECT_EQ(
+    harness.state->subscribe_remote_track_calls.front(), (std::pair<std::string, std::string>{"operator-1", "PA_op"}));
+}
+
 TEST_F(RuntimeTest, TalkbackFullRestartResubscribesOnlyOnConnected)
 {
   auto options = makeStaticTokenOptions();

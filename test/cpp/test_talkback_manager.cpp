@@ -87,11 +87,7 @@ RemoteTrackEvent unpublishedOperatorEvent(const std::string & participant_identi
 void routeRoomEvents(FakeRoomConnection & connection, TalkbackManager & manager)
 {
   RoomEventCallbacks callbacks;
-  callbacks.on_state_changed = [&manager](livekit::ConnectionState state) {
-    if (state == livekit::ConnectionState::Connected) {
-      manager.onConnected();
-    }
-  };
+  callbacks.on_remote_tracks_ready = [&manager]() { manager.onConnected(); };
   callbacks.on_participant_disconnected = [&manager](const livekit::ParticipantDisconnectedEvent & event) {
     manager.onParticipantDisconnected(event);
   };
