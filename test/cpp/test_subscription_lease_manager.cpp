@@ -387,14 +387,9 @@ void expectPublishedError(
   EXPECT_EQ(status["error"]["message"], message);
 }
 
-class SubscriptionLeaseManagerHeartbeatTest : public ::testing::Test
+class SubscriptionLeaseManagerHeartbeatTest : public test_support::RclcppTestSuite
 {
 protected:
-  static void SetUpTestSuite()
-  {
-    static ScopedRclcppInit rclcpp_init;
-  }
-
   void SetUp() override
   {
     node_ = std::make_shared<rclcpp::Node>("test_hb_node");
@@ -1513,14 +1508,9 @@ TEST_F(SubscriptionLeaseManagerHeartbeatTest, MixedSubscriptionResultsArePublish
 
 // ---- Echo-once dispatch tests ----
 
-class SubscriptionLeaseManagerEchoOnceTest : public ::testing::Test
+class SubscriptionLeaseManagerEchoOnceTest : public test_support::RclcppTestSuite
 {
 protected:
-  static void SetUpTestSuite()
-  {
-    static ScopedRclcppInit rclcpp_init;
-  }
-
   void SetUp() override
   {
     node_ = std::make_shared<rclcpp::Node>("test_echo_once_node");

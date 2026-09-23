@@ -215,14 +215,8 @@ RuntimeHarness makeRuntimeHarness(const rclcpp::NodeOptions & options)
 
 }  // namespace
 
-class RuntimeTest : public ::testing::Test
-{
-protected:
-  static void SetUpTestSuite()
-  {
-    static ScopedRclcppInit rclcpp_init;
-  }
-};
+class RuntimeTest : public test_support::RclcppTestSuite
+{};
 
 TEST_F(RuntimeTest, RegistersRpcMethodsDuringStartup)
 {

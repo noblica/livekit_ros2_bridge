@@ -132,14 +132,8 @@ void expectSubscriptionQosOverrideEq(
 
 }  // namespace
 
-class RuntimeConfigTest : public ::testing::Test
-{
-protected:
-  static void SetUpTestSuite()
-  {
-    static test_support::ScopedRclcppInit rclcpp_init;
-  }
-};
+class RuntimeConfigTest : public test_support::RclcppTestSuite
+{};
 
 TEST_F(RuntimeConfigTest, StaticTokenStartupLoadsConnectionSettings)
 {

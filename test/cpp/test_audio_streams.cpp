@@ -70,13 +70,13 @@ void expectStartErrorContains(GStreamerPipeline & pipeline, const std::string & 
   }
 }
 
-class AudioStreamTest : public ::testing::Test
+class AudioStreamTest : public test_support::RclcppTestSuite
 {
 protected:
   static void SetUpTestSuite()
   {
     utils::ensureGStreamerInitialized();
-    static test_support::ScopedRclcppInit rclcpp_init;
+    RclcppTestSuite::SetUpTestSuite();
   }
 };
 

@@ -177,14 +177,8 @@ void saturateInflightQuota(
   }
 }
 
-class RosServiceCallerTest : public ::testing::Test
-{
-protected:
-  static void SetUpTestSuite()
-  {
-    static test_support::ScopedRclcppInit rclcpp_init;
-  }
-};
+class RosServiceCallerTest : public test_support::RclcppTestSuite
+{};
 
 TEST_F(RosServiceCallerTest, CallsServiceAndReturnsResponse)
 {
