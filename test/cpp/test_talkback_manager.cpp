@@ -478,9 +478,11 @@ TEST_F(TalkbackManagerTest, SecondOperatorTrackDoesNotStealSinkWhileOwnerIsLive)
   manager.onRemoteTrackSubscribed(subscribedOperatorEvent("participant-a", track_a));
   manager.onRemoteTrackSubscribed(subscribedOperatorEvent("participant-b", track_b));
 
+  // Reader A binds before it pushes, so wait for its push, not just its claim.
   factory.created[0]->pushFrame(48000, 1, 480);
-  ASSERT_TRUE(test_support::waitUntil([&]() { return sink->owner() != 0U; }));
+  ASSERT_TRUE(test_support::waitUntil([&]() { return sink->pushCount() == 1U; }));
   const std::uint64_t owner_a = sink->owner();
+  ASSERT_NE(owner_a, 0U);
   const std::size_t pushes_before = sink->pushCount();
 
   factory.created[1]->pushFrame(48000, 1, 480);
