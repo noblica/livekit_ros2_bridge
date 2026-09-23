@@ -226,14 +226,8 @@ public:
   RpcRouter router;
 };
 
-class RpcRouterTest : public ::testing::Test
-{
-protected:
-  static void SetUpTestSuite()
-  {
-    static test_support::ScopedRclcppInit rclcpp_init;
-  }
-};
+class RpcRouterTest : public test_support::RclcppTestSuite
+{};
 
 TEST_F(RpcRouterTest, RegisteredRpcHandlersRequireCallerIdentityBeforeParsing)
 {

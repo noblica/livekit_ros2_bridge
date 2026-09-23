@@ -23,6 +23,7 @@
 #include <string>
 #include <thread>
 
+#include "gtest/gtest.h"
 #include "livekit/livekit.h"
 #include "rclcpp/executors/single_threaded_executor.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -61,6 +62,28 @@ public:
       rclcpp::shutdown();
     }
   }
+};
+
+// Fixture base that keeps rclcpp initialized for a whole test suite. Shutdown
+// happens in TearDownTestSuite() rather than in a static destructor: since
+// rclcpp 16.0.20, Context::shutdown() uses thread_local state, and exit()
+// destroys thread_local objects before static ones, so shutting down from a
+// static destructor touches freed memory and can segfault after the tests pass.
+class RclcppTestSuite : public ::testing::Test
+{
+protected:
+  static void SetUpTestSuite()
+  {
+    rclcpp_init_.emplace();
+  }
+
+  static void TearDownTestSuite()
+  {
+    rclcpp_init_.reset();
+  }
+
+private:
+  inline static std::optional<ScopedRclcppInit> rclcpp_init_;
 };
 
 // LiveKit 1.6.0+ requires livekit::initialize() before any FFI-backed object

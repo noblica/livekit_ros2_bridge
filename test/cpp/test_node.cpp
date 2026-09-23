@@ -21,14 +21,8 @@
 
 namespace livekit_ros2_bridge
 {
-class NodeTest : public ::testing::Test
-{
-protected:
-  static void SetUpTestSuite()
-  {
-    static test_support::ScopedRclcppInit init;
-  }
-};
+class NodeTest : public test_support::RclcppTestSuite
+{};
 
 TEST_F(NodeTest, ConstructsWithRequiredConnectionParameters)
 {

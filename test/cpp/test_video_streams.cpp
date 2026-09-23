@@ -93,13 +93,13 @@ void expectStartErrorContains(
   }
 }
 
-class StreamTest : public ::testing::Test
+class StreamTest : public test_support::RclcppTestSuite
 {
 protected:
   static void SetUpTestSuite()
   {
     ensureGStreamerInitialized();
-    static test_support::ScopedRclcppInit rclcpp_init;
+    RclcppTestSuite::SetUpTestSuite();
   }
 };
 
