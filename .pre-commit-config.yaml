@@ -31,15 +31,10 @@ repos:
         # args: [--strict, -c=/path/to/.yamllint]
         args: [-d, "{extends: default, rules: {line-length: {max: 150}}}"]
   # XML
-  # package.xml is validated against a vendored copy of its schema: ament_xmllint downloads it over
-  # HTTP on every run, which xmllint can no longer do from libxml2 2.15 on.
-  - repo: local
+  - repo: https://github.com/polymathrobotics/polymath_code_standard
+    rev: v2.6.1
     hooks:
-      - id: package-xml-schema
-        name: Validate package.xml against the ROS package format 3 schema
-        entry: xmllint --noout --schema .config/package_format3.xsd
-        language: system
-        files: ^package\.xml$
+      - id: polymath-xml
   # Markdown
   - repo: https://github.com/jackdewinter/pymarkdown
     rev: v0.9.28
