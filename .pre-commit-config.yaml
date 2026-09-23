@@ -15,8 +15,6 @@ repos:
       - id: check-xml
       - id: check-yaml
       - id: end-of-file-fixer
-        # Keep the vendored schema byte-identical to upstream, which has no final newline.
-        exclude: ^\.config/package_format3\.xsd$
       - id: forbid-submodules
       - id: mixed-line-ending
       - id: trailing-whitespace
