@@ -290,14 +290,8 @@ struct FakeStreamFactory
   }
 };
 
-class TalkbackManagerTest : public ::testing::Test
-{
-protected:
-  static void SetUpTestSuite()
-  {
-    static test_support::ScopedRclcppInit rclcpp_init;
-  }
-};
+class TalkbackManagerTest : public test_support::RclcppTestSuite
+{};
 
 TEST_F(TalkbackManagerTest, SubscribesToOperatorTrackOnPublish)
 {

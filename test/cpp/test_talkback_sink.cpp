@@ -36,13 +36,13 @@ namespace
 // as delivered to GStreamer are a POC-verified property covered by the real-path
 // integration, not this suite.
 
-class TalkbackSinkTest : public ::testing::Test
+class TalkbackSinkTest : public test_support::RclcppTestSuite
 {
 protected:
   static void SetUpTestSuite()
   {
     utils::ensureGStreamerInitialized();
-    static test_support::ScopedRclcppInit rclcpp_init;
+    RclcppTestSuite::SetUpTestSuite();
   }
 };
 
