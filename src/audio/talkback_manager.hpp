@@ -112,7 +112,7 @@ private:
   std::mutex event_mutex_;
   std::mutex mutex_;
   std::map<std::string, std::shared_ptr<Reader>> readers_;
-  std::atomic<std::uint64_t> reader_seq_{0};
+  std::atomic<std::uint64_t> last_reader_id_{0};
   std::atomic<bool> is_shutdown_{false};
 
   // Reader lifetime bookkeeping: the destructor waits for every detached reader

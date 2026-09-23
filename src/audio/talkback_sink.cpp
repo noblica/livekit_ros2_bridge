@@ -121,16 +121,9 @@ void TalkbackSink::push(std::uint64_t reader_id, const std::int16_t * samples, s
   if (samples == nullptr || count == 0) {
     return;
   }
-  // Re-arm the restart loop: while the pipeline is down, the reader's 10 ms
-  // push cadence retries schedule() until the handler accepts it. Lock-free
-  // (see pipeline_active_ note in the header).
-  //
-  // The frame cadence, not a timer, drives the re-arm: restarting only matters while frames
-  // are arriving, and a dead device with no publisher should not cycle at all.
-  // A timer would need a frame-independent lifecycle this sink does not have;
-  // re-arming from the one thread that owns the pipeline is simpler and keeps
-  // idle bridges silent. The bus-error-driven loop still cannot self-rearm (its
-  // own error coalesces), so this push path is required, not incidental.
+  // While the pipeline is down, each live frame re-arms the restart loop, which
+  // cannot re-arm itself (a failed restart's own bus error is coalesced). Idle
+  // bridges with no frames never cycle the device.
   if (!pipeline_active_.load(std::memory_order_acquire)) {
     (void)failure_handler_.schedule();
     return;
@@ -198,8 +191,7 @@ void TalkbackSink::unbind(std::uint64_t reader_id)
 
 void TalkbackSink::stop()
 {
-  bool already_shutdown = false;
-  (void)is_shutdown_.compare_exchange_strong(already_shutdown, true);
+  is_shutdown_.store(true, std::memory_order_release);
   failure_handler_.close();
 
   std::lock_guard<std::mutex> lock(mutex_);
@@ -308,9 +300,8 @@ void TalkbackSink::startPipelineLocked()
   if (raw_caps == nullptr) {
     throw std::runtime_error("Failed to parse talkback sink caps: " + caps_string);
   }
-  // gst_caps_from_string returns a floating reference. It is a GstMiniObject,
-  // so it is released with gst_caps_unref (via GstCapsPtr), not the GObject
-  // refcounting used for elements/buses. set_caps takes its own ref.
+  // gst_caps_from_string returns a full reference to a GstMiniObject, released
+  // with gst_caps_unref via GstCapsPtr. set_caps takes its own reference.
   utils::GstCapsPtr caps(raw_caps);
 
   gst_app_src_set_caps(GST_APP_SRC(appsrc_element.get()), caps.get());
@@ -327,8 +318,8 @@ void TalkbackSink::startPipelineLocked()
     nullptr);
 
   pipeline_ = std::move(pipeline);
-  // The bin lookup's own reference keeps the appsrc valid for the pipeline's
-  // lifetime; only the pointer is stored here.
+  // appsrc_element_ owns the reference gst_bin_get_by_name returned and is
+  // released before pipeline_ in stopPipelineLocked().
   appsrc_element_ = std::move(appsrc_element);
   next_pts_ = 0;  // fresh pipeline = fresh clock base
   pipeline_active_.store(true, std::memory_order_release);

@@ -839,7 +839,7 @@ A bridge with the speaker configured:
 - `v` MUST be the protocol version, currently `2`.
 - `features` MUST be a JSON object keyed by feature name with boolean values, all of which are `true` in this protocol version. Presence in the object advertises the feature; a feature that is not available on the bridge MUST be absent from the object rather than advertised with `false`.
 - A feature MUST be advertised if and only if its availability is configuration-derived; a feature absent from `features` means "not available on this bridge".
-- `talkback` MUST be advertised if and only if the bridge has a speaker configured (`audio.sink`); an advertised `talkback` means the bridge subscribes to the Talkback Track (see [Remote Media Track: `lkros.audio.operator`](#remote-media-track-lkrosaudioperator-talkback)) and plays it.
+- `talkback` MUST be advertised if and only if the bridge has a speaker configured (`audio.sink`); an advertised `talkback` means the bridge subscribes to the Talkback Track (see [Remote Media Track: `lkros.audio.operator`](#remote-media-track-lkrosaudiooperator-talkback)) and plays it.
 - The schema is additive: new feature names MAY appear in later versions, and clients MUST ignore unknown feature names.
 - A bridge that predates this RPC answers with the LiveKit SDK's built-in unsupported-method error (`1400`). A client MUST treat that error as "this bridge does not support capability discovery" and MUST NOT interpret it as an empty feature set; the error and the empty `features` object are the two states of the discovery contract.
 

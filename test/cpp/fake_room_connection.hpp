@@ -107,7 +107,6 @@ struct FakeRoomConnectionState
   std::function<void(const std::string & name)> unpublish_video_track_hook;
   std::function<void(const std::string & name)> publish_audio_track_hook;
   std::function<void(const std::string & name)> unpublish_audio_track_hook;
-  std::vector<RoomConnection::RemoteTrackSnapshotEntry> remote_track_snapshot_for_next_call;
 
   bool throw_on_publish_data = false;
   bool throw_on_unpublish_video = false;
@@ -379,10 +378,11 @@ public:
   }
 
   // Controls what subscribeRemoteTrack() returns for a given identity:track pair.
-  void setRemoteTrackSubscribable(const std::string & participant_identity, const std::string & track_sid, bool ok)
+  void setRemoteTrackSubscribable(
+    const std::string & participant_identity, const std::string & track_sid, bool subscribable)
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    remote_subscribable_[participant_identity + ":" + track_sid] = ok;
+    remote_subscribable_[participant_identity + ":" + track_sid] = subscribable;
   }
 
   void emitRemoteTrackPublished(std::string participant_identity, std::string track_sid, std::string track_name)

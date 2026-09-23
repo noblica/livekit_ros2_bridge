@@ -294,7 +294,7 @@ void TalkbackManager::subscribeOperatorTrack(const RemoteTrackEvent & event)
     readers_[event.track_sid] = reader;
   }
 
-  const std::uint64_t reader_id = reader_seq_.fetch_add(1, std::memory_order_relaxed) + 1;
+  const std::uint64_t reader_id = last_reader_id_.fetch_add(1, std::memory_order_relaxed) + 1;
 
   LogEvent(kLogger, "talkback_reader_started")
     .field("reader_id", reader_id)

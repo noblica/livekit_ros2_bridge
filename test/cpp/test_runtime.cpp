@@ -774,14 +774,14 @@ TEST_F(RuntimeTest, CapabilityAdvertisesTalkbackOnlyWithSinkConfigured)
   configured_options.append_parameter_override("audio.sink", "fakesink sync=false");
   auto configured_harness = makeRuntimeHarness(configured_options);
 
-  const auto handler_it = configured_harness.state->rpc_handlers.find(protocol::kCapabilityMethod);
-  ASSERT_TRUE(handler_it != configured_harness.state->rpc_handlers.end());
+  const auto capability_entry = configured_harness.state->rpc_handlers.find(protocol::kCapabilityMethod);
+  ASSERT_TRUE(capability_entry != configured_harness.state->rpc_handlers.end());
   livekit::RpcInvocationData invocation;
   invocation.caller_identity = "";
   invocation.payload = "{}";
   invocation.request_id = "capability-request";
   invocation.response_timeout_sec = 0.0;
-  const auto response = handler_it->second(invocation);
+  const auto response = capability_entry->second(invocation);
   ASSERT_TRUE(response.has_value());
   const auto body = nlohmann::json::parse(*response);
   ASSERT_TRUE(body["features"].contains("talkback"));
@@ -792,9 +792,9 @@ TEST_F(RuntimeTest, CapabilityAdvertisesTalkbackOnlyWithSinkConfigured)
 
   // Without `audio.sink`, the feature must be absent entirely.
   auto default_harness = makeRuntimeHarness(makeStaticTokenOptions());
-  const auto default_handler_it = default_harness.state->rpc_handlers.find(protocol::kCapabilityMethod);
-  ASSERT_TRUE(default_handler_it != default_harness.state->rpc_handlers.end());
-  const auto default_response = default_handler_it->second(invocation);
+  const auto default_capability_entry = default_harness.state->rpc_handlers.find(protocol::kCapabilityMethod);
+  ASSERT_TRUE(default_capability_entry != default_harness.state->rpc_handlers.end());
+  const auto default_response = default_capability_entry->second(invocation);
   ASSERT_TRUE(default_response.has_value());
   const auto default_body = nlohmann::json::parse(*default_response);
   EXPECT_FALSE(default_body["features"].contains("talkback"));

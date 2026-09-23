@@ -119,7 +119,7 @@ RoomEventCallbacks Runtime::makeRoomCallbacks()
 
   // Talkback track events run on SDK delegate threads and are wrapped in
   // callback_gate_ like every other callback. They only log, subscribe, and
-  // feed the sink; no ROS work is submitted.
+  // start or stop the reader threads that feed the sink; no ROS work is submitted.
   if (talkback_manager_ != nullptr) {
     audio::TalkbackManager * talkback_manager = talkback_manager_.get();
     // Readers survive a reconnect; catching up only subscribes operator tracks

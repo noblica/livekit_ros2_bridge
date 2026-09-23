@@ -112,8 +112,7 @@ public:
   // dropped. Push failures are logged and dropped — never tear down (appsrc is
   // block=false). While the pipeline is down, the caller's live frame cadence
   // re-arms the rate-bounded restart loop; nothing restarts while no frames
-  // arrive. This cadence re-arm is a deliberate, documented divergence from the
-  // POC's "use a timer" recommendation (see talkback_sink.cpp push()).
+  // arrive.
   void push(std::uint64_t reader_id, const std::int16_t * samples, std::size_t count) override;
 
   // Releases the claim on reader finalize so the next operator track can claim
@@ -124,8 +123,8 @@ public:
   // Stops the pipeline and disables restarts. Idempotent.
   void stop() override;
 
-  // True while the playback pipeline is PLAYING. Lock-free, so callers can
-  // observe lifecycle without contending on mutex_.
+  // True from just before a pipeline is set to PLAYING until it is stopped.
+  // Lock-free, so callers can observe lifecycle without contending on mutex_.
   bool hasActivePipeline() const;
 
   // Number of startPipelineLocked() invocations. The restart loop is
