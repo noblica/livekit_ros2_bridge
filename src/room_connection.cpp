@@ -836,12 +836,24 @@ private:
     return remote_event;
   }
 
+  // Takes the callback as a member pointer rather than a reference so it is copied under mutex_:
+  // stop() reassigns callbacks_ under mutex_, and the SDK does not wait for an in-flight delegate
+  // call when the delegate is detached, so reading the member outside the lock would race.
   template <typename EventT>
   void forwardRemoteTrackEvent(
-    const std::function<void(const RemoteTrackEvent &)> & callback,
+    std::function<void(const RemoteTrackEvent &)> RoomEventCallbacks::* callback_member,
     const EventT & event,
     const std::shared_ptr<livekit::Track> & track)
   {
+    std::function<void(const RemoteTrackEvent &)> callback;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (state_ == livekit::ConnectionState::Disconnected) {
+        return;
+      }
+      callback = callbacks_.*callback_member;
+    }
+
     if (callback == nullptr) {
       return;
     }
@@ -860,13 +872,6 @@ private:
       translated.track_kind = track->kind();
     }
     translated.track = track;
-
-    {
-      std::lock_guard<std::mutex> lock(mutex_);
-      if (state_ == livekit::ConnectionState::Disconnected) {
-        return;
-      }
-    }
 
     callback(translated);
   }
@@ -977,7 +982,7 @@ private:
       std::lock_guard<std::mutex> lock(mutex_);
       remote_publications_.erase(event.publication->sid());
     }
-    forwardRemoteTrackEvent(callbacks_.on_remote_track_unpublished, event, nullptr);
+    forwardRemoteTrackEvent(&RoomEventCallbacks::on_remote_track_unpublished, event, nullptr);
   }
 
   void onTrackSubscribed(livekit::Room &, const livekit::TrackSubscribedEvent & event) override
@@ -990,7 +995,7 @@ private:
           event.participant->identity(), publication->sid(), publication->name(), publication->kind(), true},
         publication);
     }
-    forwardRemoteTrackEvent(callbacks_.on_remote_track_subscribed, event, event.track);
+    forwardRemoteTrackEvent(&RoomEventCallbacks::on_remote_track_subscribed, event, event.track);
   }
 
   void onTrackUnsubscribed(livekit::Room &, const livekit::TrackUnsubscribedEvent & event) override
@@ -999,7 +1004,7 @@ private:
       std::lock_guard<std::mutex> lock(mutex_);
       remote_publications_.setSubscribed(event.publication->sid(), false);
     }
-    forwardRemoteTrackEvent(callbacks_.on_remote_track_unsubscribed, event, event.track);
+    forwardRemoteTrackEvent(&RoomEventCallbacks::on_remote_track_unsubscribed, event, event.track);
   }
 
   void onTrackSubscriptionFailed(livekit::Room &, const livekit::TrackSubscriptionFailedEvent & event) override
