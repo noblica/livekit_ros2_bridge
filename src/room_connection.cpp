@@ -42,6 +42,7 @@
 #include "protocol/constants.hpp"
 #include "rclcpp/logging.hpp"
 #include "room_connection/remote_publication_mirror.hpp"
+#include "room_connection/remote_track_router.hpp"
 #include "utils/log_event.hpp"
 
 namespace livekit_ros2_bridge
@@ -52,6 +53,8 @@ namespace
 
 const auto kLogger = rclcpp::get_logger("livekit_ros2_bridge.room_connection");
 constexpr char kLocalParticipantUnavailable[] = "LiveKit local participant unavailable.";
+// Never sent over the wire; see snapshotRemotePublications().
+constexpr char kPublicationSeedTopic[] = "lkros.internal.publication_seed";
 
 struct ParticipantRef
 {
@@ -59,6 +62,119 @@ struct ParticipantRef
   std::shared_ptr<livekit::LocalParticipant> participant;
   std::uint64_t room_generation = 0;
 };
+
+RemotePublicationMirror::Record toRecord(
+  const std::string & participant_identity, const std::shared_ptr<livekit::RemoteTrackPublication> & publication)
+{
+  return RemotePublicationMirror::Record{
+    RoomConnection::RemoteTrackSnapshotEntry{
+      participant_identity, publication->sid(), publication->name(), publication->kind(), publication->subscribed()},
+    publication};
+}
+
+// Reads the SDK's unlocked map: call only on the SDK event thread or under Room::lock_.
+void appendPublications(
+  const livekit::RemoteParticipant & participant, std::vector<RemotePublicationMirror::Record> & records)
+{
+  for (const auto & [track_sid, publication] : participant.trackPublications()) {
+    if (publication == nullptr || track_sid.empty()) {
+      continue;
+    }
+    records.push_back(toRecord(participant.identity(), publication));
+  }
+}
+
+template <typename EventT>
+RemoteTrackEventInput translateTrackEvent(const EventT & event, const std::shared_ptr<livekit::Track> & track)
+{
+  RemoteTrackEventInput input;
+  if (event.participant != nullptr) {
+    input.participant_identity = event.participant->identity();
+  }
+  if (event.publication != nullptr) {
+    input.publication = toRecord(input.participant_identity.value_or(std::string{}), event.publication);
+  }
+  if (track != nullptr) {
+    input.track = RemoteTrackEventInput::MediaTrack{track, track->sid(), track->kind()};
+  }
+  return input;
+}
+
+// Runs `read` from its destructor, only on the constructing thread.
+class DestructorRead
+{
+public:
+  explicit DestructorRead(std::function<void()> read)
+  : owner_(std::this_thread::get_id())
+  , read_(std::move(read))
+  {}
+
+  DestructorRead(const DestructorRead &) = delete;
+  DestructorRead & operator=(const DestructorRead &) = delete;
+
+  ~DestructorRead()
+  {
+    if (std::this_thread::get_id() != owner_) {
+      return;
+    }
+    try {
+      read_();
+    } catch (...) {
+      // The caller sees its completion flag unset.
+    }
+  }
+
+private:
+  std::thread::id owner_;
+  std::function<void()> read_;
+};
+
+// Reads the publications present at connect under Room::lock_. The SDK has no locked accessor, so
+// the read runs in the destructor of a handler that unregisterTextStreamHandler() erases under lock_
+// (pinned by test_room_connection). Returns an empty seed if the read was skipped. Replace with a
+// locked SDK accessor once the fork has one.
+std::vector<RemotePublicationMirror::Record> snapshotRemotePublications(livekit::Room & room)
+{
+  // Later joins and leaves are covered by the events completeSeed() replays.
+  std::vector<std::shared_ptr<livekit::RemoteParticipant>> participants;
+  for (const auto & remote_handle : room.remoteParticipants()) {
+    auto remote_participant = remote_handle.lock();
+    if (remote_participant != nullptr) {
+      participants.push_back(std::move(remote_participant));
+    }
+  }
+
+  std::vector<RemotePublicationMirror::Record> records;
+  bool read_under_lock = false;
+  auto locked_read = std::make_shared<DestructorRead>([&participants, &records, &read_under_lock]() {
+    for (const auto & participant : participants) {
+      appendPublications(*participant, records);
+    }
+    read_under_lock = true;
+  });
+
+  try {
+    // The handler holds the only reference, so unregistering destroys it under lock_.
+    room.registerTextStreamHandler(
+      kPublicationSeedTopic,
+      [locked_read = std::move(locked_read)](std::shared_ptr<livekit::TextStreamReader>, const std::string &) {
+        (void)locked_read;
+      });
+    room.unregisterTextStreamHandler(kPublicationSeedTopic);
+  } catch (...) {
+    LogEvent(kLogger, "remote_publication_seed_failed")
+      .field("reason", "exception")
+      .fieldException("error", std::current_exception())
+      .error();
+    return {};
+  }
+
+  if (!read_under_lock) {
+    LogEvent(kLogger, "remote_publication_seed_failed").field("reason", "locked_read_skipped").error();
+    return {};
+  }
+  return records;
+}
 
 class SdkRoomConnection final : public RoomConnection, private livekit::RoomDelegate
 {
@@ -363,26 +479,16 @@ public:
       return false;
     }
 
-    std::shared_ptr<livekit::RemoteTrackPublication> publication;
+    SubscriptionPlan plan;
     {
-      // Read only the mirror: the SDK's own publication map is off-limits from this thread.
       std::lock_guard<std::mutex> lock(mutex_);
-      const auto record = remote_publications_.find(track_sid);
-      if (!record.has_value()) {
-        LogEvent(kLogger, "remote_track_subscribe_failed")
-          .field("reason", "publication_unavailable")
-          .fieldOr("participant_identity", participant_identity)
-          .fieldOr("track_sid", track_sid)
-          .warn();
-        return false;
-      }
-      if (record->entry.subscribed) {
-        return true;
-      }
-      publication = record->handle;
+      plan = remote_publications_.planSetSubscribed(track_sid, true);
     }
 
-    if (publication == nullptr) {
+    if (plan.action == SubscriptionAction::kNone) {
+      return true;
+    }
+    if (plan.action == SubscriptionAction::kUnavailable) {
       LogEvent(kLogger, "remote_track_subscribe_failed")
         .field("reason", "publication_unavailable")
         .fieldOr("participant_identity", participant_identity)
@@ -393,7 +499,7 @@ public:
 
     // setSubscribed() is a blocking FFI request; never hold mutex_ across it.
     try {
-      publication->setSubscribed(true);
+      plan.publication->setSubscribed(true);
     } catch (const std::exception & exc) {
       LogEvent(kLogger, "remote_track_subscribe_failed")
         .fieldOr("participant_identity", participant_identity)
@@ -404,7 +510,7 @@ public:
     }
 
     std::lock_guard<std::mutex> lock(mutex_);
-    remote_publications_.setSubscribed(track_sid, true);
+    remote_publications_.markSubscribed(track_sid, true);
     return true;
   }
 
@@ -414,23 +520,19 @@ public:
       return;
     }
 
-    std::shared_ptr<livekit::RemoteTrackPublication> publication;
+    SubscriptionPlan plan;
     {
       std::lock_guard<std::mutex> lock(mutex_);
-      const auto record = remote_publications_.find(track_sid);
-      if (!record.has_value() || !record->entry.subscribed) {
-        return;
-      }
-      publication = record->handle;
+      plan = remote_publications_.planSetSubscribed(track_sid, false);
     }
 
-    if (publication == nullptr) {
+    if (plan.action != SubscriptionAction::kRequest) {
       return;
     }
 
     // setSubscribed() is a blocking FFI request; never hold mutex_ across it.
     try {
-      publication->setSubscribed(false);
+      plan.publication->setSubscribed(false);
     } catch (const std::exception & exc) {
       LogEvent(kLogger, "remote_track_unsubscribe_failed")
         .fieldOr("participant_identity", participant_identity)
@@ -441,7 +543,7 @@ public:
     }
 
     std::lock_guard<std::mutex> lock(mutex_);
-    remote_publications_.setSubscribed(track_sid, false);
+    remote_publications_.markSubscribed(track_sid, false);
   }
 
   std::vector<RoomConnection::RemoteTrackSnapshotEntry> remoteTrackSnapshot() override
@@ -702,6 +804,12 @@ private:
     livekit::RoomOptions options;
     options.auto_subscribe = false;
 
+    // Log events that arrive before activateRoom() seeds the mirror, for replay.
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      remote_publications_.beginSeed();
+    }
+
     bool connected = false;
     try {
       connected = room->connect(config.url, config.access_token, options);
@@ -741,32 +849,10 @@ private:
 
   bool activateRoom(std::shared_ptr<livekit::Room> room)
   {
-    // The one unavoidable direct read of the SDK publication map, taken here on the connect thread
-    // before room_ is assigned. The SDK FFI thread can still mutate the map concurrently, but the
-    // window is a one-time seed at connect and every later mirror read/write goes through the
-    // mirror. Collect before taking mutex_ so we never iterate SDK-owned participants under our lock.
+    // Read the seed before taking mutex_: it waits on Room::lock_.
     std::vector<RemotePublicationMirror::Record> existing_publications;
     if (room != nullptr) {
-      for (const auto & remote_handle : room->remoteParticipants()) {
-        auto remote_participant = remote_handle.lock();
-        if (remote_participant == nullptr) {
-          continue;
-        }
-        for (const auto & [sid, publication] : remote_participant->trackPublications()) {
-          if (publication == nullptr || sid.empty()) {
-            continue;
-          }
-          existing_publications.push_back(
-            RemotePublicationMirror::Record{
-              RoomConnection::RemoteTrackSnapshotEntry{
-                remote_participant->identity(),
-                publication->sid(),
-                publication->name(),
-                publication->kind(),
-                publication->subscribed()},
-              publication});
-        }
-      }
+      existing_publications = snapshotRemotePublications(*room);
     }
 
     std::lock_guard<std::mutex> lock(mutex_);
@@ -775,8 +861,7 @@ private:
 
     // Seed the mirror so tracks already present at connect are not re-emitted as fresh publications
     // by the SDK null-publication workaround (onConnected already re-subscribes them from snapshot).
-    remote_publications_.clear();
-    remote_publications_.merge(existing_publications);
+    remote_publications_.completeSeed(existing_publications);
 
     bool registered = true;
     for (const auto & entry : rpc_handlers_) {
@@ -825,30 +910,21 @@ private:
     }
   }
 
-  static RemoteTrackEvent makeRemoteTrackEvent(
-    std::string participant_identity, std::string track_sid, std::string track_name, livekit::TrackKind track_kind)
-  {
-    RemoteTrackEvent remote_event;
-    remote_event.participant_identity = std::move(participant_identity);
-    remote_event.track_sid = std::move(track_sid);
-    remote_event.track_name = std::move(track_name);
-    remote_event.track_kind = track_kind;
-    return remote_event;
-  }
-
   // Takes the callback as a member pointer rather than a reference so it is copied under mutex_:
   // stop() reassigns callbacks_ under mutex_, and the SDK does not wait for an in-flight delegate
   // call when the delegate is detached, so reading the member outside the lock would race.
-  template <typename EventT>
   void forwardRemoteTrackEvent(
     std::function<void(const RemoteTrackEvent &)> RoomEventCallbacks::* callback_member,
-    const EventT & event,
-    const std::shared_ptr<livekit::Track> & track)
+    std::optional<RemoteTrackEvent> (RemoteTrackRouter::*route)(
+      const RemoteTrackEventInput &, livekit::ConnectionState),
+    const RemoteTrackEventInput & input)
   {
+    std::optional<RemoteTrackEvent> forwarded;
     std::function<void(const RemoteTrackEvent &)> callback;
     {
       std::lock_guard<std::mutex> lock(mutex_);
-      if (state_ == livekit::ConnectionState::Disconnected) {
+      forwarded = (remote_publications_.*route)(input, state_);
+      if (!forwarded.has_value()) {
         return;
       }
       callback = callbacks_.*callback_member;
@@ -857,23 +933,7 @@ private:
     if (callback == nullptr) {
       return;
     }
-
-    RemoteTrackEvent translated;
-    if (event.participant != nullptr) {
-      translated.participant_identity = event.participant->identity();
-    }
-    if (event.publication != nullptr) {
-      translated.track_sid = event.publication->sid();
-      translated.track_name = event.publication->name();
-      translated.track_kind = event.publication->kind();
-    }
-    if (translated.track_sid.empty() && track != nullptr) {
-      translated.track_sid = track->sid();
-      translated.track_kind = track->kind();
-    }
-    translated.track = track;
-
-    callback(translated);
+    callback(*forwarded);
   }
 
   void onParticipantDisconnected(livekit::Room &, const livekit::ParticipantDisconnectedEvent & event) override
@@ -886,8 +946,7 @@ private:
     std::function<void(const livekit::ParticipantDisconnectedEvent &)> callback;
     {
       std::lock_guard<std::mutex> lock(mutex_);
-      remote_publications_.eraseIdentity(participant->identity());
-      if (state_ != livekit::ConnectionState::Connected) {
+      if (!remote_publications_.participantDisconnected(participant->identity(), state_)) {
         return;
       }
       callback = callbacks_.on_participant_disconnected;
@@ -897,72 +956,33 @@ private:
       return;
     }
 
-    if (participant->identity().empty()) {
-      return;
-    }
-
     callback(event);
   }
 
   void onTrackPublished(livekit::Room &, const livekit::TrackPublishedEvent & event) override
   {
-    if (event.participant == nullptr) {
-      return;
-    }
+    const auto input = translateTrackEvent(event, nullptr);
+    // Only for the v1.6.0 null-publication case; runs on the SDK event thread.
+    const auto participant_publications = [&event]() {
+      std::vector<RemotePublicationMirror::Record> records;
+      if (event.participant != nullptr) {
+        appendPublications(*event.participant, records);
+      }
+      return records;
+    };
 
     std::vector<RemoteTrackEvent> events;
     std::function<void(const RemoteTrackEvent &)> callback;
     {
       std::lock_guard<std::mutex> lock(mutex_);
-      // Merge into the mirror in every state; only forwarding waits for Connected (below). A full
-      // restart unpublishes every remote track before it reports Reconnecting, then re-announces
-      // them as TrackPublished while still Reconnecting (a resume sends no track events at all).
-      // onConnected re-subscribes from this mirror's snapshot, so a publication dropped here would
-      // stay silent for good. Merging now also means the null-publication recovery below will not
-      // re-emit it later as newly added; the Connected snapshot that follows covers it instead.
-      if (event.publication != nullptr && !event.publication->sid().empty()) {
-        const auto & publication = event.publication;
-        remote_publications_.merge(
-          RoomConnection::RemoteTrackSnapshotEntry{
-            event.participant->identity(),
-            publication->sid(),
-            publication->name(),
-            publication->kind(),
-            publication->subscribed()},
-          publication);
-        events.push_back(makeRemoteTrackEvent(
-          event.participant->identity(), publication->sid(), publication->name(), publication->kind()));
-      } else {
-        // livekit/client-sdk-cpp v1.6.0 room.cpp kTrackPublished move()s the publication into the
-        // participant's map and then assigns the moved-from (null) shared_ptr to event.publication,
-        // so the event carries no sid or name. The hydrated publication is already stored on the
-        // participant, so recover every publication this identity has not seen yet. This
-        // deliberately leaks no track names into the connection layer: the manager still applies
-        // the exact-name gate.
-        std::vector<RemotePublicationMirror::Record> hydrated_publications;
-        for (const auto & [sid, publication] : event.participant->trackPublications()) {
-          if (publication == nullptr || sid.empty()) {
-            continue;
-          }
-          hydrated_publications.push_back(
-            RemotePublicationMirror::Record{
-              RoomConnection::RemoteTrackSnapshotEntry{
-                event.participant->identity(),
-                publication->sid(),
-                publication->name(),
-                publication->kind(),
-                publication->subscribed()},
-              publication});
-        }
-        for (const auto & newly_added : remote_publications_.merge(hydrated_publications)) {
-          events.push_back(makeRemoteTrackEvent(
-            newly_added.participant_identity, newly_added.track_sid, newly_added.track_name, newly_added.track_kind));
-        }
-      }
-
-      // Forward only while fully connected, so after a reconnect onConnected's snapshot is the one
-      // place that re-subscribes, instead of subscribing against a session still being re-established.
-      if (state_ != livekit::ConnectionState::Connected) {
+      // Merge into the mirror in every state; only forwarding waits for Connected. A full restart
+      // unpublishes every remote track before it reports Reconnecting, then re-announces them as
+      // TrackPublished while still Reconnecting (a resume sends no track events at all). onConnected
+      // re-subscribes from this mirror's snapshot, so a publication dropped here would stay silent
+      // for good. Merging now also means the null-publication recovery will not re-emit it later as
+      // newly added; the Connected snapshot that follows covers it instead.
+      events = remote_publications_.trackPublished(input, participant_publications, state_);
+      if (events.empty()) {
         return;
       }
       callback = callbacks_.on_remote_track_published;
@@ -978,33 +998,26 @@ private:
 
   void onTrackUnpublished(livekit::Room &, const livekit::TrackUnpublishedEvent & event) override
   {
-    if (event.publication != nullptr && !event.publication->sid().empty()) {
-      std::lock_guard<std::mutex> lock(mutex_);
-      remote_publications_.erase(event.publication->sid());
-    }
-    forwardRemoteTrackEvent(&RoomEventCallbacks::on_remote_track_unpublished, event, nullptr);
+    forwardRemoteTrackEvent(
+      &RoomEventCallbacks::on_remote_track_unpublished,
+      &RemoteTrackRouter::trackUnpublished,
+      translateTrackEvent(event, nullptr));
   }
 
   void onTrackSubscribed(livekit::Room &, const livekit::TrackSubscribedEvent & event) override
   {
-    if (event.participant != nullptr && event.publication != nullptr) {
-      const auto & publication = event.publication;
-      std::lock_guard<std::mutex> lock(mutex_);
-      remote_publications_.merge(
-        RoomConnection::RemoteTrackSnapshotEntry{
-          event.participant->identity(), publication->sid(), publication->name(), publication->kind(), true},
-        publication);
-    }
-    forwardRemoteTrackEvent(&RoomEventCallbacks::on_remote_track_subscribed, event, event.track);
+    forwardRemoteTrackEvent(
+      &RoomEventCallbacks::on_remote_track_subscribed,
+      &RemoteTrackRouter::trackSubscribed,
+      translateTrackEvent(event, event.track));
   }
 
   void onTrackUnsubscribed(livekit::Room &, const livekit::TrackUnsubscribedEvent & event) override
   {
-    if (event.publication != nullptr && !event.publication->sid().empty()) {
-      std::lock_guard<std::mutex> lock(mutex_);
-      remote_publications_.setSubscribed(event.publication->sid(), false);
-    }
-    forwardRemoteTrackEvent(&RoomEventCallbacks::on_remote_track_unsubscribed, event, event.track);
+    forwardRemoteTrackEvent(
+      &RoomEventCallbacks::on_remote_track_unsubscribed,
+      &RemoteTrackRouter::trackUnsubscribed,
+      translateTrackEvent(event, event.track));
   }
 
   void onTrackSubscriptionFailed(livekit::Room &, const livekit::TrackSubscriptionFailedEvent & event) override
@@ -1146,10 +1159,8 @@ private:
   std::unordered_map<const livekit::LocalVideoTrack *, std::uint64_t> track_room_generations_;
   // Guards audio unpublish against tracks published by an older room.
   std::unordered_map<const livekit::LocalAudioTrack *, std::uint64_t> audio_track_room_generations_;
-  // Bridge-owned mirror of the remote participants' publications, keyed by track sid. Mutated only on
-  // the FFI delegate thread (plus the one connect-time seed in activateRoom) and read everywhere else,
-  // so every access is serialized by mutex_. Guarded by mutex_.
-  RemotePublicationMirror remote_publications_;
+  // Mirror of remote publications by track sid, plus its event routing. Guarded by mutex_.
+  RemoteTrackRouter remote_publications_;
 
   bool stop_requested_ = false;
   bool sdk_initialized_ = false;
