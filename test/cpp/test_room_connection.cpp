@@ -12,17 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <atomic>
-#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <stdexcept>
-#include <string>
-#include <thread>
 #include <vector>
 
 #include "gtest/gtest.h"
-#include "livekit/room.h"
 #include "protocol/constants.hpp"
 #include "room_connection.hpp"
 
@@ -60,75 +55,12 @@ TEST(RoomConnectionSendByteStreamTest, UnavailableLocalParticipantThrowsRuntimeE
     std::runtime_error);
 }
 
-// snapshotRemotePublications() relies on unregisterTextStreamHandler() destroying the handler under
-// Room::lock_. The SDK does not promise that, so this fails if an SDK bump changes it.
-struct LockProbeResult
+TEST(RoomConnectionRemoteTrackTest, SubscribeAndSnapshotRefuseOutsideARoomEvent)
 {
-  bool inside_unregister = false;
-  bool destroyed_inside_unregister = false;
-  bool room_lock_held = false;
-  std::atomic<bool> contender_finished{false};
-  std::thread contender;
-};
-
-// On destruction, checks that a second thread's locked Room call stays blocked.
-class LockHeldProbe
-{
-public:
-  LockHeldProbe(livekit::Room & room, LockProbeResult & result)
-  : room_(room)
-  , result_(result)
-  , owner_(std::this_thread::get_id())
-  {}
-
-  LockHeldProbe(const LockHeldProbe &) = delete;
-  LockHeldProbe & operator=(const LockHeldProbe &) = delete;
-
-  ~LockHeldProbe()
-  {
-    if (!result_.inside_unregister || std::this_thread::get_id() != owner_) {
-      return;
-    }
-    result_.destroyed_inside_unregister = true;
-
-    auto & room = room_;
-    auto & contender_finished = result_.contender_finished;
-    result_.contender = std::thread([&room, &contender_finished]() {
-      (void)room.roomInfo();  // Takes Room::lock_.
-      contender_finished.store(true);
-    });
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    result_.room_lock_held = !contender_finished.load();
-  }
-
-private:
-  livekit::Room & room_;
-  LockProbeResult & result_;
-  std::thread::id owner_;
-};
-
-TEST(RoomConnectionSdkContractTest, UnregisteringATextStreamHandlerDestroysItUnderTheRoomLock)
-{
-  // Declared before the room so the contender can be joined before the room goes away.
-  LockProbeResult result;
-  livekit::Room room;
-
-  auto probe = std::make_shared<LockHeldProbe>(room, result);
-  room.registerTextStreamHandler(
-    "lkros.test.lock_probe",
-    [probe = std::move(probe)](std::shared_ptr<livekit::TextStreamReader>, const std::string &) { (void)probe; });
-
-  result.inside_unregister = true;
-  room.unregisterTextStreamHandler("lkros.test.lock_probe");
-  result.inside_unregister = false;
-
-  if (result.contender.joinable()) {
-    result.contender.join();
-  }
-
-  EXPECT_TRUE(result.destroyed_inside_unregister);
-  EXPECT_TRUE(result.room_lock_held);
-  EXPECT_TRUE(result.contender_finished.load());
+  // The SDK's publication maps are only safe to read inside its room-event callbacks.
+  const auto connection = createRoomConnection();
+  EXPECT_FALSE(connection->subscribeRemoteTrack("participant-1", "TR_a"));
+  EXPECT_TRUE(connection->remoteTrackSnapshot().empty());
 }
 
 }  // namespace

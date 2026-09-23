@@ -49,7 +49,8 @@ struct LiveKitConfig
 
 struct RoomEventCallbacks
 {
-  // Initial successful Connect() is reported as Connected before delegate events are reliable.
+  // Connected comes from the SDK's own event, so handlers may call remoteTrackSnapshot() and
+  // subscribeRemoteTrack() from it.
   std::function<void(livekit::ConnectionState)> on_state_changed;
 
   // Runs on a connection-managed thread, not necessarily a ROS executor thread.
@@ -136,6 +137,10 @@ public:
     const livekit::TrackPublishOptions & options) = 0;
 
   virtual void unpublishAudioTrack(const std::shared_ptr<livekit::LocalAudioTrack> & track) = 0;
+
+  // subscribeRemoteTrack() and remoteTrackSnapshot() read the SDK's publication state, so they work
+  // only from inside a room-event callback (on_state_changed or a remote-track callback); elsewhere
+  // they log and return false or an empty snapshot.
 
   // Requests media delivery for one already-published remote track by identity. A false return
   // means the subscription request could not be issued; the subscriber may retry on a later event.

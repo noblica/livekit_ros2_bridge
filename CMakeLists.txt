@@ -262,8 +262,6 @@ if(BUILD_TESTING)
   livekit_ros2_bridge_add_test(test_rpc_router test/cpp/test_rpc_router.cpp ${std_srvs_TARGETS})
   livekit_ros2_bridge_add_test(test_runtime test/cpp/test_runtime.cpp ${std_srvs_TARGETS})
   livekit_ros2_bridge_add_test(test_room_connection test/cpp/test_room_connection.cpp)
-  livekit_ros2_bridge_add_test(test_remote_publication_mirror test/cpp/test_remote_publication_mirror.cpp)
-  livekit_ros2_bridge_add_test(test_remote_track_router test/cpp/test_remote_track_router.cpp)
   livekit_ros2_bridge_add_test(test_runtime_config test/cpp/test_runtime_config.cpp)
   livekit_ros2_bridge_add_test(test_scope_exit test/cpp/test_scope_exit.cpp)
   livekit_ros2_bridge_add_test(

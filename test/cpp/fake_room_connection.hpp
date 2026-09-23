@@ -363,7 +363,7 @@ public:
     return subscribable;
   }
 
-  // The snapshot models SdkRoomConnection's publication mirror: a successful subscribeRemoteTrack()
+  // The snapshot models the SDK's publication state: a successful subscribeRemoteTrack()
   // or a subscribed event marks an entry subscribed, an unsubscribe clears it, a published event
   // adds it (forwarded only while Connected), and an unpublish or participant disconnect removes it.
   std::vector<RoomConnection::RemoteTrackSnapshotEntry> remoteTrackSnapshot() override
