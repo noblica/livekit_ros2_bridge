@@ -108,8 +108,10 @@ TalkbackManager::~TalkbackManager()
   sink_->stop();
 
   // Wait for every detached reader to finish its ScopeExit. live_readers_ is
-  // incremented before each spawn and decremented on every exit path, so once
-  // it reaches zero no thread can still be inside LiveKit FFI.
+  // incremented before each spawn and, as each reader's last act (after it
+  // drops its stream and sink references), decremented and notified under
+  // wait_mutex_. Once it reaches zero no thread can still be inside LiveKit FFI
+  // or touch this manager again.
   std::unique_lock<std::mutex> wait_lock(wait_mutex_);
   wait_cv_.wait(wait_lock, [this]() { return live_readers_.load(std::memory_order_acquire) == 0; });
 }
@@ -310,11 +312,12 @@ void TalkbackManager::subscribeOperatorTrack(const RemoteTrackEvent & event)
 
   // Dedicated reader thread: reads decoded PCM and feeds the playback sink.
   // It captures `this` for the live-reader counter, which is safe because the
-  // destructor waits for live_readers_ to reach zero before returning. The
-  // reader owns the sink claim once it binds and releases it in the ScopeExit,
-  // so a handover rebinds the sink with zero bridge-side identity knowledge.
+  // destructor waits for live_readers_ to reach zero before returning and the
+  // thread touches no member after its final decrement. The reader owns the
+  // sink claim once it binds and releases it in the ScopeExit, so a handover
+  // rebinds the sink with zero bridge-side identity knowledge.
   try {
-    std::thread([this, reader, stream, reader_id, sink = sink_]() {
+    std::thread([this, reader, stream, reader_id, sink = sink_]() mutable {
       const std::string track_sid = reader->track_sid;
 
       std::uint64_t total_frames = 0;
@@ -322,20 +325,28 @@ void TalkbackManager::subscribeOperatorTrack(const RemoteTrackEvent & event)
       bool sink_owned = false;
 
       // Runs on every exit path, in order: release the sink claim, log the
-      // stop, then drop the live-reader count and wake the destructor.
-      ScopeExit on_reader_exit([this, &sink, &track_sid, reader_id, &total_frames]() {
+      // stop, drop this thread's references, then drop the live-reader count
+      // and wake the destructor.
+      ScopeExit on_reader_exit([this, &reader, &stream, &sink, &track_sid, reader_id, &total_frames]() {
         sink->unbind(reader_id);
         LogEvent(kLogger, "talkback_reader_stopped")
           .field("reader_id", reader_id)
           .fieldOr("track_sid", track_sid)
           .field("frames_received", total_frames)
           .info();
-        // Decrement under wait_mutex_ so the destructor cannot slip between
-        // its predicate check and its wait and miss the wakeup.
-        {
-          std::lock_guard<std::mutex> exit_lock(wait_mutex_);
-          live_readers_.fetch_sub(1, std::memory_order_acq_rel);
-        }
+        // Release this thread's references while the manager is still alive.
+        // Once the count reaches zero the destructor may return and the SDK may
+        // shut down, so this detached thread must not be the one to destroy
+        // the last AudioStream or sink reference after that point.
+        stream.reset();
+        reader.reset();
+        sink.reset();
+        // Decrement and notify under wait_mutex_: the destructor can neither
+        // slip between its predicate check and its wait and miss the wakeup,
+        // nor observe zero and free wait_cv_ before notify_all() returns.
+        // Nothing after the unlock may touch a member.
+        std::lock_guard<std::mutex> exit_lock(wait_mutex_);
+        live_readers_.fetch_sub(1, std::memory_order_acq_rel);
         wait_cv_.notify_all();
       });
 
@@ -406,10 +417,13 @@ void TalkbackManager::subscribeOperatorTrack(const RemoteTrackEvent & event)
     }).detach();
   } catch (...) {
     {
+      // Notify under wait_mutex_ to match the reader's exit path. No destructor
+      // can be waiting here: this runs under event_mutex_, which the destructor
+      // takes before it waits.
       std::lock_guard<std::mutex> exit_lock(wait_mutex_);
       live_readers_.fetch_sub(1, std::memory_order_acq_rel);
+      wait_cv_.notify_all();
     }
-    wait_cv_.notify_all();
     {
       std::lock_guard<std::mutex> lock(mutex_);
       readers_.erase(event.track_sid);

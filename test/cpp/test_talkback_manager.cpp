@@ -609,5 +609,29 @@ TEST_F(TalkbackManagerTest, ReaderShutdownWaitDoesNotLoseWakeups)
   }
 }
 
+// A reader must drop its stream and sink references before it releases the
+// destructor; otherwise the last reference to a LiveKit AudioStream could be
+// destroyed on the detached thread after the manager (and possibly the SDK) is
+// gone. Once the manager is destroyed, the test must hold the only references.
+// A regression shows up as a timing-dependent failure, so iterate.
+TEST_F(TalkbackManagerTest, ReaderReleasesStreamAndSinkBeforeDestructionReturns)
+{
+  for (int iteration = 0; iteration < 100; ++iteration) {
+    FakeRoomConnection connection;
+    auto sink = std::make_shared<FakeTalkbackSink>();
+    FakeStreamFactory factory;
+    auto manager = std::make_unique<TalkbackManager>(connection, sink, factory.make());
+
+    auto track = connection.makeSyntheticRemoteTrack();
+    manager->onRemoteTrackSubscribed(subscribedOperatorEvent("participant-1", track));
+    factory.created.front()->pushFrame(48000, 1, 480);
+
+    manager.reset();
+
+    EXPECT_EQ(factory.created.front().use_count(), 1);
+    EXPECT_EQ(sink.use_count(), 1);
+  }
+}
+
 }  // namespace
 }  // namespace livekit_ros2_bridge::audio

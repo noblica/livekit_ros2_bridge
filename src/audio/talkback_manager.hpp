@@ -115,7 +115,10 @@ private:
 
   // Reader lifetime bookkeeping: the destructor waits for every detached reader
   // to finish before returning, so no thread can still be inside LiveKit FFI
-  // when the SDK shuts down.
+  // when the SDK shuts down. Each reader first drops its stream, reader, and
+  // sink references, then decrements live_readers_ and notifies wait_cv_ while
+  // holding wait_mutex_, and touches no member after unlocking; the destructor
+  // therefore cannot see zero and free wait_cv_ while a notify is in flight.
   std::atomic<std::size_t> live_readers_{0};
   std::mutex wait_mutex_;
   std::condition_variable wait_cv_;
