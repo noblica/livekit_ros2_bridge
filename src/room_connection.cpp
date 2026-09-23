@@ -893,11 +893,16 @@ private:
     }
   }
 
-  void transitionState(livekit::ConnectionState state)
+  // `source` is the room a delegate event came from, or nullptr for the connect thread. A delegate
+  // Connected is ignored until activateRoom() has seeded the mirror; connect() reports it instead.
+  void transitionState(livekit::ConnectionState state, const livekit::Room * source = nullptr)
   {
     std::function<void(livekit::ConnectionState)> callback;
     {
       std::lock_guard<std::mutex> lock(mutex_);
+      if (source != nullptr && state == livekit::ConnectionState::Connected && room_.get() != source) {
+        return;
+      }
       if (state_ == state) {
         return;
       }
@@ -1078,9 +1083,9 @@ private:
     }
   }
 
-  void onConnectionStateChanged(livekit::Room &, const livekit::ConnectionStateChangedEvent & event) override
+  void onConnectionStateChanged(livekit::Room & room, const livekit::ConnectionStateChangedEvent & event) override
   {
-    transitionState(event.state);
+    transitionState(event.state, &room);
   }
 
   void onDisconnected(livekit::Room &, const livekit::DisconnectedEvent & event) override
@@ -1098,7 +1103,7 @@ private:
   void onReconnected(livekit::Room & room, const livekit::ReconnectedEvent &) override
   {
     LogEvent(kLogger, "room_reconnected").fieldOr("room_sid", room.roomInfo().sid).info();
-    transitionState(livekit::ConnectionState::Connected);
+    transitionState(livekit::ConnectionState::Connected, &room);
   }
 
   void onRoomEos(livekit::Room &, const livekit::RoomEosEvent &) override
