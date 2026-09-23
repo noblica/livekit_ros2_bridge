@@ -26,3 +26,6 @@ pre-commit install
 ```
 
 To check the whole tree rather than only staged files, run `pre-commit run --all-files`.
+
+Commits that only reformat code are listed in `.git-blame-ignore-revs`. GitHub skips them in its
+blame view; to do the same locally, run `git config blame.ignoreRevsFile .git-blame-ignore-revs`.
