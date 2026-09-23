@@ -15,6 +15,8 @@ repos:
       - id: check-xml
       - id: check-yaml
       - id: end-of-file-fixer
+        # Keep the vendored schema byte-identical to upstream, which has no final newline.
+        exclude: ^\.config/package_format3\.xsd$
       - id: forbid-submodules
       - id: mixed-line-ending
       - id: trailing-whitespace
@@ -31,10 +33,15 @@ repos:
         # args: [--strict, -c=/path/to/.yamllint]
         args: [-d, "{extends: default, rules: {line-length: {max: 150}}}"]
   # XML
-  - repo: https://github.com/emersonknapp/ament_xmllint
-    rev: v0.1
+  # package.xml is validated against a vendored copy of its schema: ament_xmllint downloads it over
+  # HTTP on every run, which xmllint can no longer do from libxml2 2.15 on.
+  - repo: local
     hooks:
-      - id: ament_xmllint
+      - id: package-xml-schema
+        name: Validate package.xml against the ROS package format 3 schema
+        entry: xmllint --noout --schema .config/package_format3.xsd
+        language: system
+        files: ^package\.xml$
   # Markdown
   - repo: https://github.com/jackdewinter/pymarkdown
     rev: v0.9.28
