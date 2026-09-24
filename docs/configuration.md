@@ -389,6 +389,7 @@ Set `audio.out.sink` when the bridge should play client-published audio through 
    ```
 
    - the fragment is deployment's choice: raw ALSA, a sound server, or a networked audio device — bridge code is identical either way
+   - the sink's GStreamer plugin is deployment's to install: `alsasink` needs the ALSA plugin (`gstreamer1.0-alsa` on Debian/Ubuntu) in the runtime image; without it, startup fails with `no element "alsasink"`
    - do not put `appsrc` or `appsink` into the fragment; the bridge owns those endpoints and prepends its own appsrc/convert/resample stages
    - the container needs access to the audio device (e.g. `devices: ["/dev/snd"]` in the service spec); that is deployment inventory, not a bridge parameter
 
