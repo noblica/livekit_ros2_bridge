@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <gst/base/gstbasesink.h>
+
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -53,6 +55,26 @@ std::vector<std::int16_t> makeSamples(std::size_t count)
 
 // The fragment names a real sink element so pipeline start succeeds in CI.
 constexpr char kTestSinkFragment[] = "fakesink sync=false";
+
+std::vector<bool> collectSinkSync(GstElement * pipeline)
+{
+  std::vector<bool> sync_by_sink;
+  utils::GstIteratorPtr iterator(gst_bin_iterate_recurse(GST_BIN(pipeline)));
+  utils::GValueSlot item;
+  while (gst_iterator_next(iterator.get(), item.get()) == GST_ITERATOR_OK) {
+    auto * element = GST_ELEMENT(g_value_get_object(item.get()));
+    if (GST_IS_BASE_SINK(element)) {
+      sync_by_sink.push_back(gst_base_sink_get_sync(GST_BASE_SINK(element)) == TRUE);
+    }
+    item.reset();
+  }
+  return sync_by_sink;
+}
+
+utils::GstElementPtr parsePlaybackPipeline(const std::string & sink_fragment)
+{
+  return utils::GstElementPtr(gst_parse_launch(buildTalkbackSinkPipelineDescription(sink_fragment).c_str(), nullptr));
+}
 
 TEST_F(TalkbackSinkTest, FirstReaderClaimsAndBindReportsOwnership)
 {
@@ -229,6 +251,36 @@ TEST_F(TalkbackSinkTest, NoRestartAfterUnbind)
   }
 
   EXPECT_EQ(sink.pipelineStartAttempts(), attempts_after_unbind);
+}
+
+TEST_F(TalkbackSinkTest, SinkSyncIsTurnedOffOnEveryConfiguredSink)
+{
+  utils::GstElementPtr pipeline =
+    parsePlaybackPipeline("tee name=split ! queue ! fakesink sync=true split. ! queue ! fakesink sync=true");
+  ASSERT_NE(pipeline, nullptr);
+  ASSERT_EQ(collectSinkSync(pipeline.get()), (std::vector<bool>{true, true}));
+
+  disableTalkbackSinkSync(pipeline.get());
+
+  EXPECT_EQ(collectSinkSync(pipeline.get()), (std::vector<bool>{false, false}));
+}
+
+TEST_F(TalkbackSinkTest, SinkSyncIsTurnedOffOnSinksAddedLater)
+{
+  // Stands in for autoaudiosink creating its real sink after parsing.
+  utils::GstElementPtr pipeline = parsePlaybackPipeline("bin.( name=later queue ! fakesink sync=true )");
+  ASSERT_NE(pipeline, nullptr);
+  disableTalkbackSinkSync(pipeline.get());
+
+  utils::GstElementPtr nested_bin(gst_bin_get_by_name(GST_BIN(pipeline.get()), "later"));
+  ASSERT_NE(nested_bin, nullptr);
+  GstElement * added_sink = gst_element_factory_make("fakesink", nullptr);
+  ASSERT_NE(added_sink, nullptr);
+  g_object_set(added_sink, "sync", TRUE, nullptr);
+  ASSERT_TRUE(gst_bin_add(GST_BIN(nested_bin.get()), added_sink));
+
+  EXPECT_FALSE(gst_base_sink_get_sync(GST_BASE_SINK(added_sink)));
+  EXPECT_EQ(collectSinkSync(pipeline.get()), (std::vector<bool>{false, false}));
 }
 
 TEST_F(TalkbackSinkTest, TimingHelperIsCorrectForMonoAndStereo)

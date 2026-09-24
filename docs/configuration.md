@@ -231,6 +231,7 @@ Behavior notes:
 - the bridge performs no identity checks on the talkback publisher; who may publish is enforced by the application layer
 - the playback pipeline is `appsrc ! queue max-size-buffers=0 max-size-bytes=0 max-size-time=2000000000 ! audioconvert ! audioresample ! <audio.sink>`; the queue is intentionally lossless (bounded only at 2 s) rather than leaky, because dropping audio here would remove sound the operator is about to hear; the fragment is inserted verbatim after those bridge-owned stages
 - `audio.sink` must not define `appsrc` or `appsink`; the bridge owns those endpoints
+- playback is paced by arrival: the bridge sets `sync=false` on every sink in the fragment, overriding the fragment's own setting, so outputs that buffer more than they declare (e.g. `alsasink` through the ALSA pulse plugin) still play
 - output-device failures restart the pipeline at a bounded rate (~4/s) and only while audio is arriving; a missing device never crashes the node, never cycles while idle, and self-heals when audio arrives with the device restored
 - mute is silence-through: no bridge reaction, the speaker stays claimed until the track is unpublished
 

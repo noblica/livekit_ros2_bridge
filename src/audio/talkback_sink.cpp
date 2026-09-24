@@ -15,6 +15,7 @@
 #include "audio/talkback_sink.hpp"
 
 #include <gst/app/gstappsrc.h>
+#include <gst/base/gstbasesink.h>
 
 #include <chrono>
 #include <cstring>
@@ -33,12 +34,25 @@ const auto kLogger = rclcpp::get_logger("livekit_ros2_bridge.talkback_sink");
 constexpr auto kRestartDelay = std::chrono::milliseconds(250);
 constexpr auto kRestartFailureLogThrottle = std::chrono::seconds(5);
 
+void disableSyncIfSink(GstElement * element)
+{
+  if (GST_IS_BASE_SINK(element)) {
+    gst_base_sink_set_sync(GST_BASE_SINK(element), FALSE);
+  }
+}
+
+void onDeepElementAdded(GstBin *, GstBin *, GstElement * element, gpointer)
+{
+  disableSyncIfSink(element);
+}
+
 }  // namespace
 
 // Receive tail: the bridge owns the edge and the output device's own buffering
 // paces playback, so the configured fragment is used verbatim after the
-// convert/resample stages. Unlike the publish tail, this queue must not leak —
-// newest-wins would delete audio the operator is about to hear. The AudioStream
+// convert/resample stages, with sink sync off (see disableTalkbackSinkSync).
+// Unlike the publish tail, this queue must not leak — newest-wins would delete
+// audio the operator is about to hear. The AudioStream
 // ring buffer upstream already provides newest-wins, so the queue here is
 // generous and lossless; the sink's jitter buffer absorbs the rest.
 std::string buildTalkbackSinkPipelineDescription(const std::string & sink_fragment)
@@ -63,6 +77,31 @@ TalkbackBufferTiming computeTalkbackBufferTiming(
   const GstClockTime duration =
     static_cast<GstClockTime>(frame_count) * GST_SECOND / static_cast<GstClockTime>(effective_rate);
   return {next_pts, duration};
+}
+
+void disableTalkbackSinkSync(GstElement * pipeline)
+{
+  // Catches sinks that bins like autoaudiosink create on a later state change.
+  g_signal_connect(pipeline, "deep-element-added", G_CALLBACK(onDeepElementAdded), nullptr);
+
+  utils::GstIteratorPtr iterator(gst_bin_iterate_recurse(GST_BIN(pipeline)));
+  utils::GValueSlot item;
+  while (true) {
+    const GstIteratorResult result = gst_iterator_next(iterator.get(), item.get());
+    if (result == GST_ITERATOR_DONE) {
+      return;
+    }
+    if (result == GST_ITERATOR_RESYNC) {
+      gst_iterator_resync(iterator.get());
+      continue;
+    }
+    if (result != GST_ITERATOR_OK) {
+      throw std::runtime_error("Could not inspect the talkback sink pipeline's elements.");
+    }
+
+    disableSyncIfSink(GST_ELEMENT(g_value_get_object(item.get())));
+    item.reset();
+  }
 }
 
 TalkbackSink::TalkbackSink(std::string sink_fragment)
@@ -306,6 +345,7 @@ void TalkbackSink::startPipelineLocked()
 
   gst_app_src_set_caps(GST_APP_SRC(appsrc_element.get()), caps.get());
   gst_app_src_set_stream_type(GST_APP_SRC(appsrc_element.get()), GST_APP_STREAM_TYPE_STREAM);
+  disableTalkbackSinkSync(pipeline.get());
 
   utils::GstBusPtr bus(gst_element_get_bus(pipeline.get()));
   gst_bus_set_sync_handler(

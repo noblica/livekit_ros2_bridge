@@ -61,6 +61,10 @@ struct TalkbackBufferTiming
 TalkbackBufferTiming computeTalkbackBufferTiming(
   std::size_t sample_count, int channels, int sample_rate, GstClockTime next_pts);
 
+// Turns off sync on every sink, including ones added later. A synced sink whose
+// device delay exceeds its declared latency plays silence without an error.
+void disableTalkbackSinkSync(GstElement * pipeline);
+
 // Abstract playback edge used by TalkbackManager so its reader-handover and
 // shutdown logic can be driven with a fake sink in tests. The concrete
 // TalkbackSink below is the production implementation.
