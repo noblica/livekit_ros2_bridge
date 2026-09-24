@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <gst/app/gstappsrc.h>
 #include <gst/base/gstbasesink.h>
 
 #include <atomic>
@@ -282,6 +283,37 @@ TEST_F(AudioOutputSinkTest, SinkSyncIsTurnedOffOnSinksAddedLater)
 
   EXPECT_FALSE(gst_base_sink_get_sync(GST_BASE_SINK(added_sink)));
   EXPECT_EQ(collectSinkSync(pipeline.get()), (std::vector<bool>{false, false}));
+}
+
+TEST_F(AudioOutputSinkTest, BacklogBehindASlowOutputStaysWithinTheCap)
+{
+  // Drains at half real time, so audio pushed faster piles up in front of it.
+  utils::GstElementPtr pipeline = parsePlaybackPipeline("identity sleep-time=20000 ! fakesink sync=false");
+  ASSERT_NE(pipeline, nullptr);
+  utils::GstElementPtr appsrc_element(gst_bin_get_by_name(GST_BIN(pipeline.get()), kBridgeAppSrcName));
+  ASSERT_NE(appsrc_element, nullptr);
+  utils::GstCapsPtr caps(gst_caps_from_string("audio/x-raw,format=S16LE,layout=interleaved,rate=48000,channels=1"));
+  gst_app_src_set_caps(GST_APP_SRC(appsrc_element.get()), caps.get());
+  ASSERT_NE(gst_element_set_state(pipeline.get(), GST_STATE_PLAYING), GST_STATE_CHANGE_FAILURE);
+
+  constexpr std::size_t kSamplesPerFrame = 480;
+  constexpr int kFrameCount = 300;  // 3 s of 10 ms frames
+  GstClockTime next_pts = 0;
+  for (int frame = 0; frame < kFrameCount; ++frame) {
+    const AudioOutputBufferTiming timing = computeAudioOutputBufferTiming(kSamplesPerFrame, 1, 48000, next_pts);
+    next_pts += timing.duration;
+    GstBuffer * buffer = gst_buffer_new_allocate(nullptr, kSamplesPerFrame * sizeof(std::int16_t), nullptr);
+    gst_buffer_memset(buffer, 0, 0, kSamplesPerFrame * sizeof(std::int16_t));
+    GST_BUFFER_PTS(buffer) = timing.pts;
+    GST_BUFFER_DURATION(buffer) = timing.duration;
+    ASSERT_EQ(gst_app_src_push_buffer(GST_APP_SRC(appsrc_element.get()), buffer), GST_FLOW_OK);
+  }
+
+  guint64 queued_time = 0;
+  g_object_get(appsrc_element.get(), "current-level-time", &queued_time, nullptr);
+  EXPECT_LE(queued_time, kAudioOutputMaxBacklog + 10 * GST_MSECOND);
+
+  gst_element_set_state(pipeline.get(), GST_STATE_NULL);
 }
 
 TEST_F(AudioOutputSinkTest, TimingHelperIsCorrectForMonoAndStereo)

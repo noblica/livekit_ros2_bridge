@@ -39,8 +39,11 @@ namespace livekit_ros2_bridge::audio
 // endpoint.
 inline constexpr char kBridgeAppSrcName[] = "bridge_audio_out_src";
 
-// Builds the playback pipeline description: the bridge-owned appsrc feeding a
-// lossless, bounded queue, then audioconvert, audioresample, and the verbatim
+// Most audio appsrc holds before dropping the oldest, bounding added delay.
+inline constexpr GstClockTime kAudioOutputMaxBacklog = 200 * GST_MSECOND;
+
+// Builds the playback pipeline description: the bridge-owned appsrc, capped at
+// kAudioOutputMaxBacklog, then audioconvert, audioresample, and the verbatim
 // sink fragment. Shared with startup validation so the validated pipeline
 // matches the one that runs.
 std::string buildAudioOutputSinkPipelineDescription(const std::string & sink_fragment);
@@ -78,10 +81,8 @@ public:
   virtual void stop() = 0;
 };
 
-// Plays received audio output PCM through appsrc → queue (generous, non-leaky) →
-// audioconvert → audioresample → the configured sink fragment. The queue must
-// not drop: the AudioStream ring buffer upstream already does newest-wins, and
-// deleting audio here would remove sound that is about to be played. The
+// Plays received audio output PCM through appsrc (capped, drops oldest) →
+// audioconvert → audioresample → the configured sink fragment. The
 // pipeline is created lazily because appsrc caps come from the first frame's
 // actual rate/channels.
 //

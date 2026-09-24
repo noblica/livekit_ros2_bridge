@@ -229,7 +229,7 @@ Behavior notes:
 - a non-empty `audio.out.sink` enables the feature and advertises `audio.out`, with the `track_name` to publish, through the [`lkros.capability`](protocol.md#rpc-lkroscapability) RPC, so client UIs offer audio output only where it can work
 - the bridge connects with auto-subscribe disabled and subscribes only to the fixed-name audio output track (`lkros.audio.out`); other published media is never received
 - the bridge performs no identity checks on the audio output publisher; who may publish is enforced by the application layer
-- the playback pipeline is `appsrc ! queue max-size-buffers=0 max-size-bytes=0 max-size-time=2000000000 ! audioconvert ! audioresample ! <audio.out.sink>`; the queue is intentionally lossless (bounded only at 2 s) rather than leaky, because dropping audio here would remove sound that is about to be played; the fragment is inserted verbatim after those bridge-owned stages
+- the playback pipeline is `appsrc ! audioconvert ! audioresample ! <audio.out.sink>`; appsrc is the only bridge-owned buffer and holds at most 200 ms, dropping the oldest audio beyond that, so an output that falls behind skips instead of building up delay; the fragment is inserted verbatim after those bridge-owned stages
 - `audio.out.sink` must not define `appsrc` or `appsink`; the bridge owns those endpoints
 - playback is paced by arrival: the bridge sets `sync=false` on every sink in the fragment, overriding the fragment's own setting, so outputs that buffer more than they declare (e.g. `alsasink` through the ALSA pulse plugin) still play
 - output-device failures restart the pipeline at a bounded rate (~4/s) and only while audio is arriving; a missing device never crashes the node, never cycles while idle, and self-heals when audio arrives with the device restored
@@ -389,7 +389,7 @@ Set `audio.out.sink` when the bridge should play client-published audio through 
    ```
 
    - the fragment is deployment's choice: raw ALSA, a sound server, or a networked audio device — bridge code is identical either way
-   - do not put `appsrc` or `appsink` into the fragment; the bridge owns those endpoints and prepends its own appsrc/queue/convert/resample stages
+   - do not put `appsrc` or `appsink` into the fragment; the bridge owns those endpoints and prepends its own appsrc/convert/resample stages
    - the container needs access to the audio device (e.g. `devices: ["/dev/snd"]` in the service spec); that is deployment inventory, not a bridge parameter
 
 2. Expect the feature to be discoverable.

@@ -51,16 +51,15 @@ void onDeepElementAdded(GstBin *, GstBin *, GstElement * element, gpointer)
 // Receive tail: the bridge owns the edge and the output device's own buffering
 // paces playback, so the configured fragment is used verbatim after the
 // convert/resample stages, with sink sync off (see disableAudioOutputSinkSync).
-// Unlike the publish tail, this queue must not leak — newest-wins would delete
-// audio that is about to be played. The AudioStream
-// ring buffer upstream already provides newest-wins, so the queue here is
-// generous and lossless; the sink's jitter buffer absorbs the rest.
+// appsrc is the only buffer: past kAudioOutputMaxBacklog it drops the oldest
+// audio, so a slow output costs a skip rather than a growing delay.
 std::string buildAudioOutputSinkPipelineDescription(const std::string & sink_fragment)
 {
   std::string description = "appsrc name=";
   description += kBridgeAppSrcName;
   description += " is-live=true block=false format=time do-timestamp=false";
-  description += " ! queue max-size-buffers=0 max-size-bytes=0 max-size-time=2000000000";
+  description += " max-bytes=0 max-buffers=0 leaky-type=downstream max-time=";
+  description += std::to_string(kAudioOutputMaxBacklog);
   description += " ! audioconvert";
   description += " ! audioresample";
   description += " ! ";

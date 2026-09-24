@@ -493,7 +493,7 @@ Frames arrive at 10 ms cadence, 48 kHz mono int16 PCM. The bridge reads the firs
 ### Notes
 
 - A client offers audio output only when [`lkros.capability`](#rpc-lkroscapability) advertises `audio.out`; publishing the track without that advertisement has no effect on unconfigured bridges.
-- The bridge tolerates lossy links by playing the newest audio: a stalled upstream never queues unboundedly.
+- The bridge plays the newest audio: it holds at most 200 ms of received audio and drops the oldest beyond that, so neither a stalled link nor a slow output builds up unbounded delay.
 
 ## Byte Stream: `lkros.echo.once`
 
