@@ -52,9 +52,13 @@ namespace
 constexpr char kOperatorTrackName[] = "lkros.audio.operator";
 constexpr char kTestSinkFragment[] = "fakesink sync=false";
 
-livekit::ParticipantDisconnectedEvent makeDisconnectedEvent(const std::string & identity)
+// Returned as a prvalue: RemoteParticipant is neither copyable nor movable,
+// so callers must let guaranteed copy elision construct it in place and keep
+// the local alive while the event points into it. A shared static here would
+// freeze the identity at the first call and silently cross-couple tests.
+livekit::RemoteParticipant makeDisconnectedParticipant(const std::string & identity)
 {
-  static livekit::RemoteParticipant participant(
+  return livekit::RemoteParticipant(
     livekit::FfiHandle{},
     "fake-participant-sid",
     "fake-participant-name",
@@ -63,6 +67,10 @@ livekit::ParticipantDisconnectedEvent makeDisconnectedEvent(const std::string & 
     std::unordered_map<std::string, std::string>{},
     livekit::ParticipantKind::Standard,
     livekit::DisconnectReason::Unknown);
+}
+
+livekit::ParticipantDisconnectedEvent makeDisconnectedEvent(livekit::RemoteParticipant & participant)
+{
   livekit::ParticipantDisconnectedEvent event;
   event.participant = &participant;
   return event;
@@ -461,7 +469,8 @@ TEST_F(TalkbackManagerTest, ParticipantDisconnectAndUnsubscribeAlsoCleanUp)
   ASSERT_EQ(factory.created.size(), 2U);
   factory.created[1]->pushFrame(48000, 1, 480);
   ASSERT_TRUE(test_support::waitUntil([&]() { return sink->owner() != 0U; }));
-  manager.onParticipantDisconnected(makeDisconnectedEvent("participant-2"));
+  auto disconnected_participant = makeDisconnectedParticipant("participant-2");
+  manager.onParticipantDisconnected(makeDisconnectedEvent(disconnected_participant));
   ASSERT_TRUE(test_support::waitUntil([&]() { return factory.created[1]->isClosed(); }));
   ASSERT_TRUE(test_support::waitUntil([&]() { return sink->owner() == 0U; }));
 }
@@ -672,7 +681,8 @@ TEST_F(TalkbackManagerTest, CleanupEventsAfterTheReaderIsGoneAreHarmless)
 
   // Later cleanup events for the same track neither start a reader nor claim the sink.
   manager.onRemoteTrackUnsubscribed(subscribedOperatorEvent("participant-1", track));
-  manager.onParticipantDisconnected(makeDisconnectedEvent("participant-1"));
+  auto disconnected_participant = makeDisconnectedParticipant("participant-1");
+  manager.onParticipantDisconnected(makeDisconnectedEvent(disconnected_participant));
   EXPECT_EQ(factory.created.size(), 1U);
   EXPECT_EQ(sink->owner(), 0U);
 }
@@ -683,7 +693,8 @@ TEST_F(TalkbackManagerTest, ParticipantDisconnectIsSafeWithoutReaders)
   TalkbackManager manager(connection, kTestSinkFragment);
 
   EXPECT_NO_THROW(connection.emitParticipantDisconnected("participant-1"));
-  EXPECT_NO_THROW(manager.onParticipantDisconnected(makeDisconnectedEvent("participant-1")));
+  auto disconnected_participant = makeDisconnectedParticipant("participant-1");
+  EXPECT_NO_THROW(manager.onParticipantDisconnected(makeDisconnectedEvent(disconnected_participant)));
 }
 
 TEST_F(TalkbackManagerTest, NonOperatorSubscribedTrackIsIgnored)
