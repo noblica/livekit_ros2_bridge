@@ -191,7 +191,7 @@ AccessPolicy makeServicePolicy(std::vector<std::string> allow = {}, std::vector<
 class RpcRouterHarness
 {
 public:
-  explicit RpcRouterHarness(const AccessPolicy & policy = AccessPolicy(), bool talkback_enabled = false)
+  explicit RpcRouterHarness(const AccessPolicy & policy = AccessPolicy(), bool audio_output_enabled = false)
   : node(std::make_shared<rclcpp::Node>(nextNodeName("rpc_router_test_node")))
   , queue(RosExecutorQueue::NodeInterfaces(*node), node->get_clock())
   , caller(node->get_node_base_interface(), node->get_node_graph_interface(), node->get_node_waitables_interface())
@@ -204,7 +204,7 @@ public:
       node->get_clock(),
       connection,
       makeSubscribePolicy({"*"}))
-  , router(node->get_node_graph_interface(), policy, queue, caller, lease_manager, talkback_enabled)
+  , router(node->get_node_graph_interface(), policy, queue, caller, lease_manager, audio_output_enabled)
   {
     router.registerRpcs(connection);
   }
@@ -276,7 +276,7 @@ TEST_F(RpcRouterTest, CapabilityRpcIgnoresJunkPayloadAndAnswersUnderDefaultDenyP
   EXPECT_TRUE(harness.connection.state->published_data_calls.empty());
 }
 
-TEST_F(RpcRouterTest, CapabilityRpcAdvertisesTalkbackOnlyWhenConfigured)
+TEST_F(RpcRouterTest, CapabilityRpcAdvertisesAudioOutputOnlyWhenConfigured)
 {
   RpcRouterHarness harness(makeServicePolicy(), true);
 

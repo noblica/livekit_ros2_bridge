@@ -114,8 +114,8 @@ add_library(livekit_ros2_bridge_audio STATIC
   src/audio/gstreamer_stream.cpp
   src/audio/stream_config.cpp
   src/audio/stream_spec.cpp
-  src/audio/talkback_manager.cpp
-  src/audio/talkback_sink.cpp
+  src/audio/audio_output_manager.cpp
+  src/audio/audio_output_sink.cpp
   src/audio/track_publisher.cpp
 )
 set_target_properties(livekit_ros2_bridge_audio PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -304,8 +304,8 @@ if(BUILD_TESTING)
     PkgConfig::gstreamer-audio
   )
   livekit_ros2_bridge_add_test(test_audio_track_publisher test/cpp/test_audio_track_publisher.cpp)
-  livekit_ros2_bridge_add_test(test_talkback_sink test/cpp/test_talkback_sink.cpp PkgConfig::gstreamer-app)
-  livekit_ros2_bridge_add_test(test_talkback_manager test/cpp/test_talkback_manager.cpp)
+  livekit_ros2_bridge_add_test(test_audio_output_sink test/cpp/test_audio_output_sink.cpp PkgConfig::gstreamer-app)
+  livekit_ros2_bridge_add_test(test_audio_output_manager test/cpp/test_audio_output_manager.cpp)
   livekit_ros2_bridge_add_test(test_pipeline_failure_handler test/cpp/test_pipeline_failure_handler.cpp)
 endif()
 

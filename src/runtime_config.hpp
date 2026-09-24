@@ -38,10 +38,10 @@ struct RuntimeConfig
     std::chrono::milliseconds recovery_timeout{std::chrono::seconds(75)};
   };
 
-  // Operator Talkback. The sink fragment is a free-form GStreamer fragment;
+  // Audio output. The sink fragment is a free-form GStreamer fragment;
   // empty means the feature does not exist on this deployment (no playback
   // pipeline, no track subscription, and no capability advertisement).
-  struct Talkback
+  struct AudioOutput
   {
     std::string sink_fragment;
   };
@@ -52,7 +52,7 @@ struct RuntimeConfig
   SubscriptionQosConfig subscription_qos;
   video::StreamConfig video_stream;
   audio::StreamConfig audio_stream;
-  Talkback talkback;
+  AudioOutput audio_output;
 };
 
 // Loads one ROS parameter snapshot; falls back to LIVEKIT_TOKEN when livekit.token is unset.

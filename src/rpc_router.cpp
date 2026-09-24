@@ -159,13 +159,13 @@ RpcRouter::RpcRouter(
   RosExecutorQueue & queue,
   RosServiceCaller & caller,
   SubscriptionLeaseManager & lease_manager,
-  bool talkback_enabled)
+  bool audio_output_enabled)
 : graph_(std::move(graph))
 , policy_(policy)
 , queue_(queue)
 , caller_(caller)
 , lease_manager_(lease_manager)
-, talkback_enabled_(talkback_enabled)
+, audio_output_enabled_(audio_output_enabled)
 {}
 
 RpcRouter::~RpcRouter()
@@ -332,7 +332,7 @@ std::optional<std::string> RpcRouter::capability(const livekit::RpcInvocationDat
   (void)invocation;
   // Features are configuration-derived: present if and only if configured.
   nlohmann::json features = nlohmann::json::object();
-  if (talkback_enabled_) {
+  if (audio_output_enabled_) {
     features["talkback"] = true;
   }
   const nlohmann::json response = {

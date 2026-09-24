@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "audio/talkback_sink.hpp"
+#include "audio/audio_output_sink.hpp"
 
 #include <gst/app/gstappsrc.h>
 #include <gst/base/gstbasesink.h>
@@ -30,7 +30,7 @@ namespace livekit_ros2_bridge::audio
 namespace
 {
 
-const auto kLogger = rclcpp::get_logger("livekit_ros2_bridge.talkback_sink");
+const auto kLogger = rclcpp::get_logger("livekit_ros2_bridge.audio_out_sink");
 constexpr auto kRestartDelay = std::chrono::milliseconds(250);
 constexpr auto kRestartFailureLogThrottle = std::chrono::seconds(5);
 
@@ -50,12 +50,12 @@ void onDeepElementAdded(GstBin *, GstBin *, GstElement * element, gpointer)
 
 // Receive tail: the bridge owns the edge and the output device's own buffering
 // paces playback, so the configured fragment is used verbatim after the
-// convert/resample stages, with sink sync off (see disableTalkbackSinkSync).
+// convert/resample stages, with sink sync off (see disableAudioOutputSinkSync).
 // Unlike the publish tail, this queue must not leak — newest-wins would delete
-// audio the operator is about to hear. The AudioStream
+// audio that is about to be played. The AudioStream
 // ring buffer upstream already provides newest-wins, so the queue here is
 // generous and lossless; the sink's jitter buffer absorbs the rest.
-std::string buildTalkbackSinkPipelineDescription(const std::string & sink_fragment)
+std::string buildAudioOutputSinkPipelineDescription(const std::string & sink_fragment)
 {
   std::string description = "appsrc name=";
   description += kBridgeAppSrcName;
@@ -68,7 +68,7 @@ std::string buildTalkbackSinkPipelineDescription(const std::string & sink_fragme
   return description;
 }
 
-TalkbackBufferTiming computeTalkbackBufferTiming(
+AudioOutputBufferTiming computeAudioOutputBufferTiming(
   std::size_t sample_count, int channels, int sample_rate, GstClockTime next_pts)
 {
   const int effective_channels = channels > 0 ? channels : 1;
@@ -79,7 +79,7 @@ TalkbackBufferTiming computeTalkbackBufferTiming(
   return {next_pts, duration};
 }
 
-void disableTalkbackSinkSync(GstElement * pipeline)
+void disableAudioOutputSinkSync(GstElement * pipeline)
 {
   // Catches sinks that bins like autoaudiosink create on a later state change.
   g_signal_connect(pipeline, "deep-element-added", G_CALLBACK(onDeepElementAdded), nullptr);
@@ -96,7 +96,7 @@ void disableTalkbackSinkSync(GstElement * pipeline)
       continue;
     }
     if (result != GST_ITERATOR_OK) {
-      throw std::runtime_error("Could not inspect the talkback sink pipeline's elements.");
+      throw std::runtime_error("Could not inspect the audio output sink pipeline's elements.");
     }
 
     disableSyncIfSink(GST_ELEMENT(g_value_get_object(item.get())));
@@ -104,17 +104,17 @@ void disableTalkbackSinkSync(GstElement * pipeline)
   }
 }
 
-TalkbackSink::TalkbackSink(std::string sink_fragment)
+AudioOutputSink::AudioOutputSink(std::string sink_fragment)
 : sink_fragment_(std::move(sink_fragment))
 , failure_handler_(kRestartDelay, [this]() { restartPipeline(); })
 {}
 
-TalkbackSink::~TalkbackSink()
+AudioOutputSink::~AudioOutputSink()
 {
   stop();
 }
 
-bool TalkbackSink::bind(std::uint64_t reader_id, int sample_rate, int num_channels)
+bool AudioOutputSink::bind(std::uint64_t reader_id, int sample_rate, int num_channels)
 {
   if (is_shutdown_.load(std::memory_order_acquire)) {
     return false;
@@ -140,7 +140,7 @@ bool TalkbackSink::bind(std::uint64_t reader_id, int sample_rate, int num_channe
       // reader's live frame cadence re-arms the restart loop (push() schedules while the pipeline
       // is down) and playback self-heals when the device returns. Ownership is released only by
       // unbind()/reader finalize or stop().
-      LogEvent(kLogger, "talkback_sink_start_failed").fieldOr("error", exception.what()).warn();
+      LogEvent(kLogger, "audio_out_sink_start_failed").fieldOr("error", exception.what()).warn();
       stopPipelineLocked();
     }
   }
@@ -148,7 +148,7 @@ bool TalkbackSink::bind(std::uint64_t reader_id, int sample_rate, int num_channe
   return true;
 }
 
-void TalkbackSink::push(std::uint64_t reader_id, const std::int16_t * samples, std::size_t count)
+void AudioOutputSink::push(std::uint64_t reader_id, const std::int16_t * samples, std::size_t count)
 {
   if (is_shutdown_.load(std::memory_order_acquire)) {
     return;
@@ -176,14 +176,14 @@ void TalkbackSink::push(std::uint64_t reader_id, const std::int16_t * samples, s
   const std::size_t byte_size = count * sizeof(std::int16_t);
   utils::GstBufferPtr buffer(gst_buffer_new_allocate(nullptr, byte_size, nullptr));
   if (buffer == nullptr) {
-    LogEvent(kLogger, "talkback_sink_push_failed").field("reason", "buffer_alloc_failed").warn();
+    LogEvent(kLogger, "audio_out_sink_push_failed").field("reason", "buffer_alloc_failed").warn();
     return;
   }
 
   {
     utils::GstBufferMap mapping(*buffer, GST_MAP_WRITE);
     if (!mapping.is_valid()) {
-      LogEvent(kLogger, "talkback_sink_push_failed").field("reason", "buffer_map_failed").warn();
+      LogEvent(kLogger, "audio_out_sink_push_failed").field("reason", "buffer_map_failed").warn();
       return;
     }
     std::memcpy(mapping.get()->data, samples, byte_size);
@@ -192,7 +192,7 @@ void TalkbackSink::push(std::uint64_t reader_id, const std::int16_t * samples, s
   // Explicit frame-count PTS/DURATION (do-timestamp=false): the audio clock
   // defines time as a perfectly regular stamp train, instead of wall-clock
   // arrival stamps that jitter against the pipeline clock and crackle.
-  const TalkbackBufferTiming timing = computeTalkbackBufferTiming(count, caps_channels_, caps_rate_, next_pts_);
+  const AudioOutputBufferTiming timing = computeAudioOutputBufferTiming(count, caps_channels_, caps_rate_, next_pts_);
   next_pts_ += timing.duration;
 
   GST_BUFFER_PTS(buffer.get()) = timing.pts;
@@ -203,14 +203,14 @@ void TalkbackSink::push(std::uint64_t reader_id, const std::int16_t * samples, s
   // push simply reclaims the pipeline.
   const GstFlowReturn result = gst_app_src_push_buffer(GST_APP_SRC(appsrc_element_.get()), buffer.release());
   if (result != GST_FLOW_OK) {
-    LogEvent(kLogger, "talkback_sink_push_failed")
+    LogEvent(kLogger, "audio_out_sink_push_failed")
       .field("reason", "push_return")
       .field("flow_return", static_cast<int>(result))
       .warn();
   }
 }
 
-void TalkbackSink::unbind(std::uint64_t reader_id)
+void AudioOutputSink::unbind(std::uint64_t reader_id)
 {
   // Release the claim under mutex_: a new owner's bind() then waits for this
   // stop, so it cannot start its pipeline before this reader tears one down.
@@ -221,14 +221,14 @@ void TalkbackSink::unbind(std::uint64_t reader_id)
   }
 
   // Releasing the claim must also release the output device: otherwise a
-  // coalesced restart could reopen the speaker after the operator's track
+  // coalesced restart could reopen the device after the output track
   // unpublishes. Cancel the queued restart so it cannot run at all;
   // restartPipeline()'s owner_ == 0 guard is the second line of defence.
   stopPipelineLocked();
   failure_handler_.cancelPending();
 }
 
-void TalkbackSink::stop()
+void AudioOutputSink::stop()
 {
   is_shutdown_.store(true, std::memory_order_release);
   failure_handler_.close();
@@ -237,12 +237,12 @@ void TalkbackSink::stop()
   stopPipelineLocked();
 }
 
-bool TalkbackSink::hasActivePipeline() const
+bool AudioOutputSink::hasActivePipeline() const
 {
   return pipeline_active_.load(std::memory_order_acquire);
 }
 
-std::size_t TalkbackSink::pipelineStartAttempts() const
+std::size_t AudioOutputSink::pipelineStartAttempts() const
 {
   return pipeline_start_attempts_.load(std::memory_order_relaxed);
 }
@@ -253,7 +253,7 @@ std::size_t TalkbackSink::pipelineStartAttempts() const
 // would deadlock against the calling thread itself. schedule() coalesces
 // duplicate failures, and close() marks the handler closed before teardown, so
 // no sink mutex_ is needed.
-void TalkbackSink::onBusMessage(GstMessage * message)
+void AudioOutputSink::onBusMessage(GstMessage * message)
 {
   if (is_shutdown_.load(std::memory_order_acquire)) {
     return;
@@ -271,13 +271,13 @@ void TalkbackSink::onBusMessage(GstMessage * message)
     return;
   }
 
-  LogEvent(kLogger, "talkback_sink_restart_scheduled")
+  LogEvent(kLogger, "audio_out_sink_restart_scheduled")
     .fieldOr("reason", reason)
     .field("restart_delay_ms", kRestartDelay.count())
     .warn();
 }
 
-void TalkbackSink::restartPipeline()
+void AudioOutputSink::restartPipeline()
 {
   if (is_shutdown_.load(std::memory_order_acquire)) {
     return;
@@ -300,34 +300,34 @@ void TalkbackSink::restartPipeline()
     // No retry cap: a permanently missing device restarts at ~4/s, bounded by
     // the 250 ms delay, while audio keeps arriving. Idle robots never restart:
     // re-arms come only from live frames on the track.
-    LogEvent(kLogger, "talkback_sink_restart_failed")
+    LogEvent(kLogger, "audio_out_sink_restart_failed")
       .fieldOr("error", exception.what())
       .warnThrottle(log_clock_, kRestartFailureLogThrottle);
   }
 }
 
-void TalkbackSink::startPipelineLocked()
+void AudioOutputSink::startPipelineLocked()
 {
   (void)pipeline_start_attempts_.fetch_add(1, std::memory_order_relaxed);
 
   utils::ensureGStreamerInitialized();
 
   if (sink_fragment_.empty()) {
-    throw std::runtime_error("Talkback sink fragment is not configured.");
+    throw std::runtime_error("Audio output sink fragment is not configured.");
   }
   if (caps_rate_ <= 0 || caps_channels_ <= 0) {
-    throw std::runtime_error("Talkback sink caps are not set.");
+    throw std::runtime_error("Audio output sink caps are not set.");
   }
 
   utils::GstElementPtr pipeline(
-    gst_parse_launch(buildTalkbackSinkPipelineDescription(sink_fragment_).c_str(), nullptr));
+    gst_parse_launch(buildAudioOutputSinkPipelineDescription(sink_fragment_).c_str(), nullptr));
   if (pipeline == nullptr) {
-    throw std::runtime_error("Failed to create GStreamer talkback sink pipeline.");
+    throw std::runtime_error("Failed to create GStreamer audio output sink pipeline.");
   }
 
   utils::GstElementPtr appsrc_element(gst_bin_get_by_name(GST_BIN(pipeline.get()), kBridgeAppSrcName));
   if (appsrc_element == nullptr || !GST_IS_APP_SRC(appsrc_element.get())) {
-    throw std::runtime_error("Talkback sink pipeline did not create the expected appsrc.");
+    throw std::runtime_error("Audio output sink pipeline did not create the expected appsrc.");
   }
 
   std::string caps_string = "audio/x-raw,format=S16LE,layout=interleaved,rate=";
@@ -337,7 +337,7 @@ void TalkbackSink::startPipelineLocked()
 
   GstCaps * raw_caps = gst_caps_from_string(caps_string.c_str());
   if (raw_caps == nullptr) {
-    throw std::runtime_error("Failed to parse talkback sink caps: " + caps_string);
+    throw std::runtime_error("Failed to parse audio output sink caps: " + caps_string);
   }
   // gst_caps_from_string returns a full reference to a GstMiniObject, released
   // with gst_caps_unref via GstCapsPtr. set_caps takes its own reference.
@@ -345,13 +345,13 @@ void TalkbackSink::startPipelineLocked()
 
   gst_app_src_set_caps(GST_APP_SRC(appsrc_element.get()), caps.get());
   gst_app_src_set_stream_type(GST_APP_SRC(appsrc_element.get()), GST_APP_STREAM_TYPE_STREAM);
-  disableTalkbackSinkSync(pipeline.get());
+  disableAudioOutputSinkSync(pipeline.get());
 
   utils::GstBusPtr bus(gst_element_get_bus(pipeline.get()));
   gst_bus_set_sync_handler(
     bus.get(),
     [](GstBus *, GstMessage * message, gpointer user_data) -> GstBusSyncReply {
-      static_cast<TalkbackSink *>(user_data)->onBusMessage(message);
+      static_cast<AudioOutputSink *>(user_data)->onBusMessage(message);
       return GST_BUS_PASS;
     },
     this,
@@ -367,13 +367,13 @@ void TalkbackSink::startPipelineLocked()
   const GstStateChangeReturn result = gst_element_set_state(pipeline_.get(), GST_STATE_PLAYING);
   if (result == GST_STATE_CHANGE_FAILURE) {
     stopPipelineLocked();
-    throw std::runtime_error("Failed to set talkback sink pipeline to PLAYING.");
+    throw std::runtime_error("Failed to set audio output sink pipeline to PLAYING.");
   }
 
-  LogEvent(kLogger, "talkback_sink_started").field("caps", caps_string).info();
+  LogEvent(kLogger, "audio_out_sink_started").field("caps", caps_string).info();
 }
 
-void TalkbackSink::stopPipelineLocked()
+void AudioOutputSink::stopPipelineLocked()
 {
   if (pipeline_ == nullptr) {
     return;
@@ -392,14 +392,14 @@ void TalkbackSink::stopPipelineLocked()
   pipeline_active_.store(false, std::memory_order_release);
 }
 
-void TalkbackSink::logIgnoredOnce(std::uint64_t reader_id)
+void AudioOutputSink::logIgnoredOnce(std::uint64_t reader_id)
 {
   // Only log when the dropped-frame source changes. Bounded state: a single
   // sentinel-guarded word instead of a set that grows per reader.
   if (last_ignored_reader_.exchange(reader_id, std::memory_order_acq_rel) == reader_id) {
     return;
   }
-  LogEvent(kLogger, "talkback_sink_frame_dropped")
+  LogEvent(kLogger, "audio_out_sink_frame_dropped")
     .field("reader_id", reader_id)
     .field("owner_id", owner_.load(std::memory_order_acquire))
     .debug();

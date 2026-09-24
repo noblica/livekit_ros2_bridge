@@ -37,7 +37,7 @@ public:
     RosExecutorQueue & queue,
     RosServiceCaller & caller,
     SubscriptionLeaseManager & lease_manager,
-    bool talkback_enabled = false);
+    bool audio_output_enabled = false);
   ~RpcRouter();
 
   RpcRouter(const RpcRouter &) = delete;
@@ -69,7 +69,7 @@ private:
   std::optional<std::string> requestEchoOnce(const livekit::RpcInvocationData & invocation);
   std::optional<std::string> capability(const livekit::RpcInvocationData & invocation);
 
-  bool talkback_enabled_ = false;
+  bool audio_output_enabled_ = false;
 };
 
 }  // namespace livekit_ros2_bridge

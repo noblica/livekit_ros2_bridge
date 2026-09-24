@@ -619,7 +619,7 @@ public:
   }
 
   // A remote Track whose sid is unique per call. The Track base class carries
-  // kind/name/sid for the talkback path; no media flows through it in tests.
+  // kind/name/sid for the audio output path; no media flows through it in tests.
   // Track's constructor is protected, so a minimal subclass exposes it.
   std::shared_ptr<livekit::Track> makeSyntheticRemoteTrack(
     livekit::TrackKind kind = livekit::TrackKind::KIND_AUDIO, std::string track_sid = {})

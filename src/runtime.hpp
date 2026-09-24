@@ -44,7 +44,7 @@ namespace livekit_ros2_bridge
 
 namespace audio
 {
-class TalkbackManager;
+class AudioOutputManager;
 }  // namespace audio
 
 class Runtime final
@@ -82,7 +82,7 @@ private:
   RosTopicPublisher ros_topic_publisher_;
   RosServiceCaller ros_service_caller_;
   SubscriptionLeaseManager subscription_lease_manager_;
-  std::unique_ptr<audio::TalkbackManager> talkback_manager_;
+  std::unique_ptr<audio::AudioOutputManager> audio_output_manager_;
   RpcRouter rpc_router_;
   ConnectionWatchdog watchdog_;
 };

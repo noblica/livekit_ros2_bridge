@@ -22,7 +22,7 @@
 #include <thread>
 #include <vector>
 
-#include "audio/talkback_sink.hpp"
+#include "audio/audio_output_sink.hpp"
 #include "gtest/gtest.h"
 #include "ros_test_support.hpp"
 #include "utils/gstreamer_resources.hpp"
@@ -38,7 +38,7 @@ namespace
 // as delivered to GStreamer are a POC-verified property covered by the real-path
 // integration, not this suite.
 
-class TalkbackSinkTest : public test_support::RclcppTestSuite
+class AudioOutputSinkTest : public test_support::RclcppTestSuite
 {
 protected:
   static void SetUpTestSuite()
@@ -73,12 +73,13 @@ std::vector<bool> collectSinkSync(GstElement * pipeline)
 
 utils::GstElementPtr parsePlaybackPipeline(const std::string & sink_fragment)
 {
-  return utils::GstElementPtr(gst_parse_launch(buildTalkbackSinkPipelineDescription(sink_fragment).c_str(), nullptr));
+  return utils::GstElementPtr(
+    gst_parse_launch(buildAudioOutputSinkPipelineDescription(sink_fragment).c_str(), nullptr));
 }
 
-TEST_F(TalkbackSinkTest, FirstReaderClaimsAndBindReportsOwnership)
+TEST_F(AudioOutputSinkTest, FirstReaderClaimsAndBindReportsOwnership)
 {
-  TalkbackSink sink(kTestSinkFragment);
+  AudioOutputSink sink(kTestSinkFragment);
 
   EXPECT_TRUE(sink.bind(1, 48000, 1));
   EXPECT_FALSE(sink.bind(2, 48000, 1));
@@ -87,12 +88,12 @@ TEST_F(TalkbackSinkTest, FirstReaderClaimsAndBindReportsOwnership)
   EXPECT_TRUE(sink.bind(2, 48000, 1));
 }
 
-TEST_F(TalkbackSinkTest, FailedInitialStartKeepsTheClaimForRetry)
+TEST_F(AudioOutputSinkTest, FailedInitialStartKeepsTheClaimForRetry)
 {
   // An empty fragment makes startPipelineLocked() throw deterministically. The
   // reader must still own the sink afterwards so its live frame cadence keeps
   // re-arming the restart loop and playback recovers when the device returns.
-  TalkbackSink sink("");
+  AudioOutputSink sink("");
 
   EXPECT_TRUE(sink.bind(1, 48000, 1));
   EXPECT_FALSE(sink.bind(2, 48000, 1));
@@ -102,35 +103,35 @@ TEST_F(TalkbackSinkTest, FailedInitialStartKeepsTheClaimForRetry)
   EXPECT_TRUE(sink.bind(2, 48000, 1));
 }
 
-TEST_F(TalkbackSinkTest, PushFromNonOwnerIsDroppedWithoutEffect)
+TEST_F(AudioOutputSinkTest, PushFromNonOwnerIsDroppedWithoutEffect)
 {
-  TalkbackSink sink(kTestSinkFragment);
+  AudioOutputSink sink(kTestSinkFragment);
 
   EXPECT_TRUE(sink.bind(1, 48000, 1));
 
-  // A second live operator track's frames are dropped, never played.
+  // A second live output track's frames are dropped, never played.
   EXPECT_NO_THROW(sink.push(2, makeSamples(480).data(), 480));
   EXPECT_NO_THROW(sink.push(1, makeSamples(480).data(), 480));
 
   sink.unbind(1);
 }
 
-TEST_F(TalkbackSinkTest, UnbindReleasesClaimForNextOperator)
+TEST_F(AudioOutputSinkTest, UnbindReleasesClaimForNextTrack)
 {
-  TalkbackSink sink(kTestSinkFragment);
+  AudioOutputSink sink(kTestSinkFragment);
 
   EXPECT_TRUE(sink.bind(1, 48000, 1));
   sink.push(1, makeSamples(480).data(), 480);
   sink.unbind(1);
 
-  // Lease-handover rebind: the next operator track claims on its first frame.
+  // Lease-handover rebind: the next output track claims on its first frame.
   EXPECT_TRUE(sink.bind(2, 48000, 1));
   EXPECT_NO_THROW(sink.push(2, makeSamples(480).data(), 480));
 }
 
-TEST_F(TalkbackSinkTest, UnbindFromNonOwnerIsANoOp)
+TEST_F(AudioOutputSinkTest, UnbindFromNonOwnerIsANoOp)
 {
-  TalkbackSink sink(kTestSinkFragment);
+  AudioOutputSink sink(kTestSinkFragment);
 
   EXPECT_TRUE(sink.bind(1, 48000, 1));
   sink.unbind(2);
@@ -138,9 +139,9 @@ TEST_F(TalkbackSinkTest, UnbindFromNonOwnerIsANoOp)
   EXPECT_FALSE(sink.bind(2, 48000, 1));
 }
 
-TEST_F(TalkbackSinkTest, StopDisablesBindAndKeepsPushSafe)
+TEST_F(AudioOutputSinkTest, StopDisablesBindAndKeepsPushSafe)
 {
-  TalkbackSink sink(kTestSinkFragment);
+  AudioOutputSink sink(kTestSinkFragment);
 
   sink.stop();
   EXPECT_FALSE(sink.bind(1, 48000, 1));
@@ -148,16 +149,16 @@ TEST_F(TalkbackSinkTest, StopDisablesBindAndKeepsPushSafe)
   sink.stop();
 }
 
-TEST_F(TalkbackSinkTest, PushWithoutBindIsDropped)
+TEST_F(AudioOutputSinkTest, PushWithoutBindIsDropped)
 {
-  TalkbackSink sink(kTestSinkFragment);
+  AudioOutputSink sink(kTestSinkFragment);
 
   EXPECT_NO_THROW(sink.push(1, makeSamples(480).data(), 480));
 }
 
-TEST_F(TalkbackSinkTest, SilenceThroughDoesNotDisturbTheClaim)
+TEST_F(AudioOutputSinkTest, SilenceThroughDoesNotDisturbTheClaim)
 {
-  TalkbackSink sink(kTestSinkFragment);
+  AudioOutputSink sink(kTestSinkFragment);
 
   EXPECT_TRUE(sink.bind(1, 48000, 1));
   // Mute arrives as continuous silent frames; the sink stays claimed and the
@@ -168,21 +169,21 @@ TEST_F(TalkbackSinkTest, SilenceThroughDoesNotDisturbTheClaim)
   EXPECT_FALSE(sink.bind(2, 48000, 1));
 }
 
-TEST_F(TalkbackSinkTest, UnbindStopsThePipeline)
+TEST_F(AudioOutputSinkTest, UnbindStopsThePipeline)
 {
-  TalkbackSink sink(kTestSinkFragment);
+  AudioOutputSink sink(kTestSinkFragment);
 
   ASSERT_TRUE(sink.bind(1, 48000, 1));
   EXPECT_TRUE(sink.hasActivePipeline());
 
-  // Reader finalize must release the audio.sink device, not just the claim.
+  // Reader finalize must release the audio.out.sink device, not just the claim.
   sink.unbind(1);
   EXPECT_FALSE(sink.hasActivePipeline());
 }
 
-TEST_F(TalkbackSinkTest, HandoverStartsAFreshPipelineWithNewCaps)
+TEST_F(AudioOutputSinkTest, HandoverStartsAFreshPipelineWithNewCaps)
 {
-  TalkbackSink sink(kTestSinkFragment);
+  AudioOutputSink sink(kTestSinkFragment);
 
   ASSERT_TRUE(sink.bind(1, 48000, 1));
   const std::size_t attempts_after_first_bind = sink.pipelineStartAttempts();
@@ -192,7 +193,7 @@ TEST_F(TalkbackSinkTest, HandoverStartsAFreshPipelineWithNewCaps)
   sink.unbind(1);
   EXPECT_FALSE(sink.hasActivePipeline());
 
-  // The next operator track claims on its first frame; a fresh pipeline is built
+  // The next output track claims on its first frame; a fresh pipeline is built
   // with its own rate/channels, and the old pipeline is gone before it starts.
   ASSERT_TRUE(sink.bind(2, 44100, 2));
   EXPECT_EQ(sink.pipelineStartAttempts(), attempts_after_first_bind + 1);
@@ -200,11 +201,11 @@ TEST_F(TalkbackSinkTest, HandoverStartsAFreshPipelineWithNewCaps)
   EXPECT_NO_THROW(sink.push(2, makeSamples(44100 * 2).data(), 44100 * 2));
 }
 
-TEST_F(TalkbackSinkTest, IdleSinkDoesNotRestartWhilePipelineIsDown)
+TEST_F(AudioOutputSinkTest, IdleSinkDoesNotRestartWhilePipelineIsDown)
 {
   // Empty fragment makes the initial start throw, so the sink is claimed but has
   // no pipeline. With no frames arriving, the rate-bounded loop must not cycle.
-  TalkbackSink sink("");
+  AudioOutputSink sink("");
 
   ASSERT_TRUE(sink.bind(1, 48000, 1));
   const std::size_t attempts_after_bind = sink.pipelineStartAttempts();
@@ -213,11 +214,11 @@ TEST_F(TalkbackSinkTest, IdleSinkDoesNotRestartWhilePipelineIsDown)
   EXPECT_EQ(sink.pipelineStartAttempts(), attempts_after_bind);
 }
 
-TEST_F(TalkbackSinkTest, LiveFramesReArmBoundedRestarts)
+TEST_F(AudioOutputSinkTest, LiveFramesReArmBoundedRestarts)
 {
   // With a dead device, each live frame re-arms the restart loop (bounded by the
   // 250 ms delay). Over 700 ms that is at least the initial bind plus a retry.
-  TalkbackSink sink("");
+  AudioOutputSink sink("");
 
   ASSERT_TRUE(sink.bind(1, 48000, 1));
 
@@ -230,9 +231,9 @@ TEST_F(TalkbackSinkTest, LiveFramesReArmBoundedRestarts)
   EXPECT_GE(sink.pipelineStartAttempts(), 2U);
 }
 
-TEST_F(TalkbackSinkTest, NoRestartAfterUnbind)
+TEST_F(AudioOutputSinkTest, NoRestartAfterUnbind)
 {
-  TalkbackSink sink("");
+  AudioOutputSink sink("");
 
   ASSERT_TRUE(sink.bind(1, 48000, 1));
   for (int frame_index = 0; frame_index < 5; ++frame_index) {
@@ -253,24 +254,24 @@ TEST_F(TalkbackSinkTest, NoRestartAfterUnbind)
   EXPECT_EQ(sink.pipelineStartAttempts(), attempts_after_unbind);
 }
 
-TEST_F(TalkbackSinkTest, SinkSyncIsTurnedOffOnEveryConfiguredSink)
+TEST_F(AudioOutputSinkTest, SinkSyncIsTurnedOffOnEveryConfiguredSink)
 {
   utils::GstElementPtr pipeline =
     parsePlaybackPipeline("tee name=split ! queue ! fakesink sync=true split. ! queue ! fakesink sync=true");
   ASSERT_NE(pipeline, nullptr);
   ASSERT_EQ(collectSinkSync(pipeline.get()), (std::vector<bool>{true, true}));
 
-  disableTalkbackSinkSync(pipeline.get());
+  disableAudioOutputSinkSync(pipeline.get());
 
   EXPECT_EQ(collectSinkSync(pipeline.get()), (std::vector<bool>{false, false}));
 }
 
-TEST_F(TalkbackSinkTest, SinkSyncIsTurnedOffOnSinksAddedLater)
+TEST_F(AudioOutputSinkTest, SinkSyncIsTurnedOffOnSinksAddedLater)
 {
   // Stands in for autoaudiosink creating its real sink after parsing.
   utils::GstElementPtr pipeline = parsePlaybackPipeline("bin.( name=later queue ! fakesink sync=true )");
   ASSERT_NE(pipeline, nullptr);
-  disableTalkbackSinkSync(pipeline.get());
+  disableAudioOutputSinkSync(pipeline.get());
 
   utils::GstElementPtr nested_bin(gst_bin_get_by_name(GST_BIN(pipeline.get()), "later"));
   ASSERT_NE(nested_bin, nullptr);
@@ -283,19 +284,19 @@ TEST_F(TalkbackSinkTest, SinkSyncIsTurnedOffOnSinksAddedLater)
   EXPECT_EQ(collectSinkSync(pipeline.get()), (std::vector<bool>{false, false}));
 }
 
-TEST_F(TalkbackSinkTest, TimingHelperIsCorrectForMonoAndStereo)
+TEST_F(AudioOutputSinkTest, TimingHelperIsCorrectForMonoAndStereo)
 {
   // 480 frames at 48 kHz is 10 ms regardless of channel count; the interleaved
   // sample count only scales the byte size, not the duration.
-  const TalkbackBufferTiming mono = computeTalkbackBufferTiming(480, 1, 48000, 0);
+  const AudioOutputBufferTiming mono = computeAudioOutputBufferTiming(480, 1, 48000, 0);
   EXPECT_EQ(mono.pts, 0U);
   EXPECT_EQ(mono.duration, 10'000'000U);
 
-  const TalkbackBufferTiming stereo = computeTalkbackBufferTiming(960, 2, 48000, 0);
+  const AudioOutputBufferTiming stereo = computeAudioOutputBufferTiming(960, 2, 48000, 0);
   EXPECT_EQ(stereo.duration, 10'000'000U);
 
   // A running PTS advances by exactly the previous buffer's duration.
-  const TalkbackBufferTiming second = computeTalkbackBufferTiming(480, 1, 48000, mono.pts + mono.duration);
+  const AudioOutputBufferTiming second = computeAudioOutputBufferTiming(480, 1, 48000, mono.pts + mono.duration);
   EXPECT_EQ(second.pts, 10'000'000U);
 }
 

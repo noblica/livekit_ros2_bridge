@@ -34,23 +34,23 @@
 namespace livekit_ros2_bridge::audio
 {
 
-// Wire name of the bridge-owned appsrc in the talkback playback pipeline. The
+// Wire name of the bridge-owned appsrc in the audio output playback pipeline. The
 // startup validator reserves it so a sink fragment cannot define its own
 // endpoint.
-inline constexpr char kBridgeAppSrcName[] = "bridge_talkback_src";
+inline constexpr char kBridgeAppSrcName[] = "bridge_audio_out_src";
 
 // Builds the playback pipeline description: the bridge-owned appsrc feeding a
 // lossless, bounded queue, then audioconvert, audioresample, and the verbatim
 // sink fragment. Shared with startup validation so the validated pipeline
 // matches the one that runs.
-std::string buildTalkbackSinkPipelineDescription(const std::string & sink_fragment);
+std::string buildAudioOutputSinkPipelineDescription(const std::string & sink_fragment);
 
 // Timing for one interleaved S16 buffer. The per-channel frame count drives the
 // duration, so a stereo buffer advances the playback clock the same wall time as
 // a mono buffer with the same number of frames. The caller threads next_pts
 // through push(); keeping a running GstClockTime avoids the long-run overflow of
 // multiplying an ever-growing sample counter by GST_SECOND.
-struct TalkbackBufferTiming
+struct AudioOutputBufferTiming
 {
   GstClockTime pts;
   GstClockTime duration;
@@ -58,51 +58,51 @@ struct TalkbackBufferTiming
 
 // Computes PTS/DURATION for one interleaved S16 buffer. A non-positive channel
 // count is treated as mono; a non-positive rate falls back to 48000 Hz.
-TalkbackBufferTiming computeTalkbackBufferTiming(
+AudioOutputBufferTiming computeAudioOutputBufferTiming(
   std::size_t sample_count, int channels, int sample_rate, GstClockTime next_pts);
 
 // Turns off sync on every sink, including ones added later. A synced sink whose
 // device delay exceeds its declared latency plays silence without an error.
-void disableTalkbackSinkSync(GstElement * pipeline);
+void disableAudioOutputSinkSync(GstElement * pipeline);
 
-// Abstract playback edge used by TalkbackManager so its reader-handover and
+// Abstract playback edge used by AudioOutputManager so its reader-handover and
 // shutdown logic can be driven with a fake sink in tests. The concrete
-// TalkbackSink below is the production implementation.
-class TalkbackSinkInterface
+// AudioOutputSink below is the production implementation.
+class AudioOutputSinkInterface
 {
 public:
-  virtual ~TalkbackSinkInterface() = default;
+  virtual ~AudioOutputSinkInterface() = default;
   virtual bool bind(std::uint64_t reader_id, int sample_rate, int num_channels) = 0;
   virtual void push(std::uint64_t reader_id, const std::int16_t * samples, std::size_t count) = 0;
   virtual void unbind(std::uint64_t reader_id) = 0;
   virtual void stop() = 0;
 };
 
-// Plays received Talkback PCM through appsrc → queue (generous, non-leaky) →
+// Plays received audio output PCM through appsrc → queue (generous, non-leaky) →
 // audioconvert → audioresample → the configured sink fragment. The queue must
 // not drop: the AudioStream ring buffer upstream already does newest-wins, and
-// deleting audio here would remove sound the operator is about to hear. The
+// deleting audio here would remove sound that is about to be played. The
 // pipeline is created lazily because appsrc caps come from the first frame's
 // actual rate/channels.
 //
-// Ownership: refcounted; each TalkbackManager reader thread captures it by
-// copy, so the sink may outlive a single reader. ~TalkbackSink stops the
+// Ownership: refcounted; each AudioOutputManager reader thread captures it by
+// copy, so the sink may outlive a single reader. ~AudioOutputSink stops the
 // pipeline and closes the failure handler.
 //
 // Concurrency: frames arrive on per-track reader threads, failures arrive on
 // GStreamer bus threads. A single reader owns the sink at a time (atomic CAS on
 // a reader id); frames from other readers are logged once and dropped, so a
-// second live operator track can never steal the speaker from the active one.
-class TalkbackSink : public TalkbackSinkInterface
+// second live output track can never steal the sink from the active one.
+class AudioOutputSink : public AudioOutputSinkInterface
 {
 public:
-  explicit TalkbackSink(std::string sink_fragment);
-  ~TalkbackSink() override;
+  explicit AudioOutputSink(std::string sink_fragment);
+  ~AudioOutputSink() override;
 
-  TalkbackSink(const TalkbackSink &) = delete;
-  TalkbackSink & operator=(const TalkbackSink &) = delete;
-  TalkbackSink(TalkbackSink &&) = delete;
-  TalkbackSink & operator=(TalkbackSink &&) = delete;
+  AudioOutputSink(const AudioOutputSink &) = delete;
+  AudioOutputSink & operator=(const AudioOutputSink &) = delete;
+  AudioOutputSink(AudioOutputSink &&) = delete;
+  AudioOutputSink & operator=(AudioOutputSink &&) = delete;
 
   // Claims the sink for this reader (first caller wins) and lazily starts the
   // playback pipeline with caps built from this frame. Only the owning reader's
@@ -119,7 +119,7 @@ public:
   // arrive.
   void push(std::uint64_t reader_id, const std::int16_t * samples, std::size_t count) override;
 
-  // Releases the claim on reader finalize so the next operator track can claim
+  // Releases the claim on reader finalize so the next output track can claim
   // on its first frame (lease-handover rebind, with no bridge-side identity
   // knowledge). No-op when this reader did not own the sink.
   void unbind(std::uint64_t reader_id) override;

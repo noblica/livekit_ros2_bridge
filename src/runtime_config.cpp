@@ -24,8 +24,8 @@
 #include <unordered_set>
 #include <utility>
 
+#include "audio/audio_output_sink.hpp"
 #include "audio/stream_config.hpp"
-#include "audio/talkback_sink.hpp"
 #include "livekit_ros2_bridge/livekit_ros2_bridge_parameters.hpp"
 #include "rclcpp/logging.hpp"
 #include "rmw/qos_string_conversions.h"
@@ -155,13 +155,13 @@ RuntimeConfig loadRuntimeConfig(const rclcpp::node_interfaces::NodeParametersInt
     stage = "audio_config";
     config.audio_stream = audio::loadConfig(params);
 
-    stage = "talkback_config";
-    config.talkback.sink_fragment = trim(params.audio.sink);
-    if (!config.talkback.sink_fragment.empty()) {
+    stage = "audio_output_config";
+    config.audio_output.sink_fragment = trim(params.audio.out.sink);
+    if (!config.audio_output.sink_fragment.empty()) {
       utils::validatePipeline(
-        "talkback audio.sink",
-        audio::buildTalkbackSinkPipelineDescription(config.talkback.sink_fragment),
-        utils::makeTalkbackSinkLayout(audio::kBridgeAppSrcName));
+        "audio.out.sink",
+        audio::buildAudioOutputSinkPipelineDescription(config.audio_output.sink_fragment),
+        utils::makeAudioOutputSinkLayout(audio::kBridgeAppSrcName));
     }
 
     return config;

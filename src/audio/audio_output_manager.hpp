@@ -24,7 +24,7 @@
 #include <mutex>
 #include <string>
 
-#include "audio/talkback_sink.hpp"
+#include "audio/audio_output_sink.hpp"
 #include "livekit/audio_stream.h"
 #include "livekit/track.h"
 #include "room_connection.hpp"
@@ -33,26 +33,26 @@ namespace livekit_ros2_bridge::audio
 {
 
 // Abstract pull-based decoded-PCM stream, mirroring the one livekit::AudioStream
-// surface the Talkback reader uses, so reader-handover and shutdown can be
+// surface the audio output reader uses, so reader-handover and shutdown can be
 // tested without a real LiveKit track.
-class TalkbackAudioStream
+class AudioOutputStream
 {
 public:
-  virtual ~TalkbackAudioStream() = default;
+  virtual ~AudioOutputStream() = default;
   virtual bool read(livekit::AudioFrameEvent & out_event) = 0;
   virtual void close() = 0;
 };
 
-using TalkbackStreamFactory = std::function<std::shared_ptr<TalkbackAudioStream>(
+using AudioOutputStreamFactory = std::function<std::shared_ptr<AudioOutputStream>(
   const std::shared_ptr<livekit::Track> & track, std::size_t capacity)>;
 
-// The bridge-side Talkback receive path. Consumes the one remote media track
-// the bridge names — the Talkback Track (`lkros.audio.operator`) — by exact
+// The bridge-side audio output receive path. Consumes the one remote media
+// track the bridge names — the audio output track (`lkros.audio.out`) — by exact
 // name, reads decoded PCM on a dedicated reader thread, and feeds the
 // bridge-owned playback sink. The publisher's identity reaches logs via track
 // events; the bridge performs no identity checks on it.
 //
-// Lifecycle: the manager is created only when `audio.sink` is configured, so
+// Lifecycle: the manager is created only when `audio.out.sink` is configured, so
 // an unconfigured deployment never touches track events. Every cleanup path
 // (unsubscribe, unpublish, subscription failure, participant disconnect,
 // shutdown) tears down its readers; no orphaned reader threads remain. A
@@ -60,23 +60,23 @@ using TalkbackStreamFactory = std::function<std::shared_ptr<TalkbackAudioStream>
 // reconnect is not a cleanup path: an SDK resume keeps remote tracks and their
 // media alive, and a full restart unpublishes every remote track before it
 // reports Reconnecting, which ends those readers through the paths above.
-class TalkbackManager
+class AudioOutputManager
 {
 public:
-  TalkbackManager(RoomConnection & room_connection, std::string sink_fragment);
-  TalkbackManager(
+  AudioOutputManager(RoomConnection & room_connection, std::string sink_fragment);
+  AudioOutputManager(
     RoomConnection & room_connection,
-    std::shared_ptr<TalkbackSinkInterface> sink,
-    TalkbackStreamFactory stream_factory);
-  ~TalkbackManager();
+    std::shared_ptr<AudioOutputSinkInterface> sink,
+    AudioOutputStreamFactory stream_factory);
+  ~AudioOutputManager();
 
-  TalkbackManager(const TalkbackManager &) = delete;
-  TalkbackManager & operator=(const TalkbackManager &) = delete;
-  TalkbackManager(TalkbackManager &&) = delete;
-  TalkbackManager & operator=(TalkbackManager &&) = delete;
+  AudioOutputManager(const AudioOutputManager &) = delete;
+  AudioOutputManager & operator=(const AudioOutputManager &) = delete;
+  AudioOutputManager(AudioOutputManager &&) = delete;
+  AudioOutputManager & operator=(AudioOutputManager &&) = delete;
 
   // Room event handlers. Every public handler serializes on event_mutex_ so the
-  // reader map's check-then-act in subscribeOperatorTrack cannot interleave.
+  // reader map's check-then-act in subscribeOutputTrack cannot interleave.
   void onRemoteTrackPublished(const RemoteTrackEvent & event);
   void onRemoteTrackUnpublished(const RemoteTrackEvent & event);
   void onRemoteTrackSubscribed(const RemoteTrackEvent & event);
@@ -84,7 +84,7 @@ public:
   void onRemoteTrackSubscriptionFailed(const RemoteTrackSubscriptionFailedEvent & event);
   void onParticipantDisconnected(const livekit::ParticipantDisconnectedEvent & event);
 
-  // Runs from on_remote_tracks_ready and subscribes every operator-named track
+  // Runs from on_remote_tracks_ready and subscribes every output-named track
   // the snapshot reports as unsubscribed, including ones a full restart
   // re-announced while Reconnecting. Running readers are left alone. Idempotent.
   void onConnected();
@@ -95,16 +95,16 @@ private:
     std::string participant_identity;
     std::string track_sid;
     std::atomic<bool> stop{false};
-    std::shared_ptr<TalkbackAudioStream> stream;
+    std::shared_ptr<AudioOutputStream> stream;
   };
 
-  void subscribeOperatorTrack(const RemoteTrackEvent & event);
+  void subscribeOutputTrack(const RemoteTrackEvent & event);
   void stopReader(const std::string & track_sid, const char * reason);
   void snapshotSubscribe();
 
   RoomConnection & room_connection_;
-  std::shared_ptr<TalkbackSinkInterface> sink_;
-  TalkbackStreamFactory stream_factory_;
+  std::shared_ptr<AudioOutputSinkInterface> sink_;
+  AudioOutputStreamFactory stream_factory_;
 
   // Serializes public handlers; taken once at the top of each handler and never
   // recursively. stopReader() and the reader map use mutex_, which may be taken

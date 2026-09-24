@@ -107,13 +107,13 @@ Supported today:
 - other video sources
 - opt-in replay of a `transient_local` topic's last message for late-joining clients
 - feature discovery, so clients can learn which optional bridge features are available
-- operator talkback playback (opt-in with `audio.sink`), via the fixed-name `lkros.audio.operator` mic track
+- audio output playback (opt-in with `audio.out.sink`), via the fixed-name `lkros.audio.out` track
 
 Not supported today:
 
 - ROS actions
 - ROS parameter get and set
-- full audio support beyond operator talkback
+- full audio support beyond audio output playback
 - large topic publish payloads
 - Metric reporting
 

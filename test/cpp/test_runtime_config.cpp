@@ -621,55 +621,56 @@ TEST_F(RuntimeConfigTest, DuplicateAudioIdsReportSectionSpecificErrors)
   expectConfigError("startup_config_duplicate_audio_other_id", options, "duplicate other audio id 'cab_mic'");
 }
 
-TEST_F(RuntimeConfigTest, TalkbackDefaultsToDisabled)
+TEST_F(RuntimeConfigTest, AudioOutputDefaultsToDisabled)
 {
-  const RuntimeConfig config = loadRuntimeConfigForNode("startup_config_talkback_default", makeStaticTokenOptions());
+  const RuntimeConfig config =
+    loadRuntimeConfigForNode("startup_config_audio_output_default", makeStaticTokenOptions());
 
-  EXPECT_TRUE(config.talkback.sink_fragment.empty());
+  EXPECT_TRUE(config.audio_output.sink_fragment.empty());
 }
 
-TEST_F(RuntimeConfigTest, TalkbackLoadsAndTrimsSinkFragment)
+TEST_F(RuntimeConfigTest, AudioOutputLoadsAndTrimsSinkFragment)
 {
   auto options = makeStaticTokenOptions();
-  options.append_parameter_override("audio.sink", "  fakesink sync=false  ");
+  options.append_parameter_override("audio.out.sink", "  fakesink sync=false  ");
 
-  const RuntimeConfig config = loadRuntimeConfigForNode("startup_config_talkback_sink", options);
+  const RuntimeConfig config = loadRuntimeConfigForNode("startup_config_audio_output_sink", options);
 
-  EXPECT_EQ(config.talkback.sink_fragment, "fakesink sync=false");
+  EXPECT_EQ(config.audio_output.sink_fragment, "fakesink sync=false");
 }
 
-TEST_F(RuntimeConfigTest, TalkbackRejectsUserAppsrcFragment)
+TEST_F(RuntimeConfigTest, AudioOutputRejectsUserAppsrcFragment)
 {
   auto options = makeStaticTokenOptions();
-  options.append_parameter_override("audio.sink", "appsrc ! fakesink");
+  options.append_parameter_override("audio.out.sink", "appsrc ! fakesink");
 
-  expectConfigErrorContains("startup_config_talkback_user_appsrc", options, "appsrc/appsink");
+  expectConfigErrorContains("startup_config_audio_output_user_appsrc", options, "appsrc/appsink");
 }
 
-TEST_F(RuntimeConfigTest, TalkbackRejectsUserAppsinkFragment)
+TEST_F(RuntimeConfigTest, AudioOutputRejectsUserAppsinkFragment)
 {
   auto options = makeStaticTokenOptions();
-  options.append_parameter_override("audio.sink", "fakesink name=x ! appsink");
+  options.append_parameter_override("audio.out.sink", "fakesink name=x ! appsink");
 
-  expectConfigErrorContains("startup_config_talkback_user_appsink", options, "appsrc/appsink");
+  expectConfigErrorContains("startup_config_audio_output_user_appsink", options, "appsrc/appsink");
 }
 
-TEST_F(RuntimeConfigTest, TalkbackRejectsInvalidFragmentSyntax)
+TEST_F(RuntimeConfigTest, AudioOutputRejectsInvalidFragmentSyntax)
 {
   auto options = makeStaticTokenOptions();
-  options.append_parameter_override("audio.sink", "this is not a pipeline !!!");
+  options.append_parameter_override("audio.out.sink", "this is not a pipeline !!!");
 
-  expectConfigErrorContains("startup_config_talkback_invalid_syntax", options, "talkback audio.sink");
+  expectConfigErrorContains("startup_config_audio_output_invalid_syntax", options, "audio.out.sink");
 }
 
-TEST_F(RuntimeConfigTest, TalkbackAcceptsValidSinkFragment)
+TEST_F(RuntimeConfigTest, AudioOutputAcceptsValidSinkFragment)
 {
   auto options = makeStaticTokenOptions();
-  options.append_parameter_override("audio.sink", "fakesink sync=false");
+  options.append_parameter_override("audio.out.sink", "fakesink sync=false");
 
-  const RuntimeConfig config = loadRuntimeConfigForNode("startup_config_talkback_valid_sink", options);
+  const RuntimeConfig config = loadRuntimeConfigForNode("startup_config_audio_output_valid_sink", options);
 
-  EXPECT_EQ(config.talkback.sink_fragment, "fakesink sync=false");
+  EXPECT_EQ(config.audio_output.sink_fragment, "fakesink sync=false");
 }
 
 }  // namespace livekit_ros2_bridge

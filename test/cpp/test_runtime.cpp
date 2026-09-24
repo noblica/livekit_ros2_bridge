@@ -768,10 +768,10 @@ TEST_F(RuntimeTest, ShutdownWaitsForRunningPublishTrackBeforeClearingSubscriptio
   EXPECT_EQ(harness.state->published_data_track_names.size(), 1U);
 }
 
-TEST_F(RuntimeTest, CapabilityAdvertisesTalkbackOnlyWithSinkConfigured)
+TEST_F(RuntimeTest, CapabilityAdvertisesAudioOutputOnlyWithSinkConfigured)
 {
   auto configured_options = makeStaticTokenOptions();
-  configured_options.append_parameter_override("audio.sink", "fakesink sync=false");
+  configured_options.append_parameter_override("audio.out.sink", "fakesink sync=false");
   auto configured_harness = makeRuntimeHarness(configured_options);
 
   const auto capability_entry = configured_harness.state->rpc_handlers.find(protocol::kCapabilityMethod);
@@ -790,7 +790,7 @@ TEST_F(RuntimeTest, CapabilityAdvertisesTalkbackOnlyWithSinkConfigured)
 
   configured_harness.runtime.reset();
 
-  // Without `audio.sink`, the feature must be absent entirely.
+  // Without `audio.out.sink`, the feature must be absent entirely.
   auto default_harness = makeRuntimeHarness(makeStaticTokenOptions());
   const auto default_capability_entry = default_harness.state->rpc_handlers.find(protocol::kCapabilityMethod);
   ASSERT_TRUE(default_capability_entry != default_harness.state->rpc_handlers.end());
@@ -800,33 +800,34 @@ TEST_F(RuntimeTest, CapabilityAdvertisesTalkbackOnlyWithSinkConfigured)
   EXPECT_FALSE(default_body["features"].contains("talkback"));
 }
 
-TEST_F(RuntimeTest, TalkbackTrackEventsSubscribeOnlyOperatorTracks)
+TEST_F(RuntimeTest, AudioOutputSubscribesOnlyTheOutputTrack)
 {
   auto options = makeStaticTokenOptions();
-  options.append_parameter_override("audio.sink", "fakesink sync=false");
+  options.append_parameter_override("audio.out.sink", "fakesink sync=false");
   auto harness = makeRuntimeHarness(options);
   harness.fake_room_connection->emitConnected();
 
-  // The Talkback Track publish triggers exactly one subscribe call.
-  harness.fake_room_connection->emitRemoteTrackPublished("operator-1", "PA_op", protocol::kTalkbackTrackName);
+  // The audio output track publish triggers exactly one subscribe call.
+  harness.fake_room_connection->emitRemoteTrackPublished("publisher-1", "PA_out", protocol::kAudioOutTrackName);
   ASSERT_EQ(harness.state->subscribe_remote_track_calls.size(), 1U);
   EXPECT_EQ(
-    harness.state->subscribe_remote_track_calls.front(), (std::pair<std::string, std::string>{"operator-1", "PA_op"}));
+    harness.state->subscribe_remote_track_calls.front(),
+    (std::pair<std::string, std::string>{"publisher-1", "PA_out"}));
 
-  // A second, non-operator publication is never subscribed.
+  // A second, unrelated publication is never subscribed.
   harness.fake_room_connection->emitRemoteTrackPublished("spectator-1", "PA_other", "unrelated_feed");
   EXPECT_EQ(harness.state->subscribe_remote_track_calls.size(), 1U);
 }
 
-TEST_F(RuntimeTest, TalkbackResumeKeepsTheExistingSubscription)
+TEST_F(RuntimeTest, AudioOutputResumeKeepsTheExistingSubscription)
 {
   auto options = makeStaticTokenOptions();
-  options.append_parameter_override("audio.sink", "fakesink sync=false");
+  options.append_parameter_override("audio.out.sink", "fakesink sync=false");
   auto harness = makeRuntimeHarness(options);
 
-  // A published-but-unsubscribed operator track exists before the first connect.
+  // A published-but-unsubscribed output track exists before the first connect.
   harness.fake_room_connection->setRemoteTrackSnapshot({RoomConnection::RemoteTrackSnapshotEntry{
-    "operator-1", "PA_op", protocol::kTalkbackTrackName, livekit::TrackKind::KIND_AUDIO, false}});
+    "publisher-1", "PA_out", protocol::kAudioOutTrackName, livekit::TrackKind::KIND_AUDIO, false}});
 
   harness.fake_room_connection->emitConnected();
   EXPECT_EQ(harness.state->subscribe_remote_track_calls.size(), 1U);
@@ -838,13 +839,13 @@ TEST_F(RuntimeTest, TalkbackResumeKeepsTheExistingSubscription)
   EXPECT_EQ(harness.state->subscribe_remote_track_calls.size(), 1U);
 }
 
-TEST_F(RuntimeTest, TalkbackCatchUpRunsOnRemoteTracksReadyNotOnStateChange)
+TEST_F(RuntimeTest, AudioOutputCatchUpRunsOnRemoteTracksReadyNotOnStateChange)
 {
   auto options = makeStaticTokenOptions();
-  options.append_parameter_override("audio.sink", "fakesink sync=false");
+  options.append_parameter_override("audio.out.sink", "fakesink sync=false");
   auto harness = makeRuntimeHarness(options);
   harness.fake_room_connection->setRemoteTrackSnapshot({RoomConnection::RemoteTrackSnapshotEntry{
-    "operator-1", "PA_op", protocol::kTalkbackTrackName, livekit::TrackKind::KIND_AUDIO, false}});
+    "publisher-1", "PA_out", protocol::kAudioOutTrackName, livekit::TrackKind::KIND_AUDIO, false}});
 
   // The bridge state only feeds the watchdog; the snapshot is read only where it is safe.
   harness.state->callbacks.on_state_changed(livekit::ConnectionState::Connected);
@@ -853,50 +854,51 @@ TEST_F(RuntimeTest, TalkbackCatchUpRunsOnRemoteTracksReadyNotOnStateChange)
   harness.state->callbacks.on_remote_tracks_ready();
   ASSERT_EQ(harness.state->subscribe_remote_track_calls.size(), 1U);
   EXPECT_EQ(
-    harness.state->subscribe_remote_track_calls.front(), (std::pair<std::string, std::string>{"operator-1", "PA_op"}));
+    harness.state->subscribe_remote_track_calls.front(),
+    (std::pair<std::string, std::string>{"publisher-1", "PA_out"}));
 }
 
-TEST_F(RuntimeTest, TalkbackFullRestartResubscribesOnlyOnConnected)
+TEST_F(RuntimeTest, AudioOutputFullRestartResubscribesOnlyOnConnected)
 {
   auto options = makeStaticTokenOptions();
-  options.append_parameter_override("audio.sink", "fakesink sync=false");
+  options.append_parameter_override("audio.out.sink", "fakesink sync=false");
   auto harness = makeRuntimeHarness(options);
   harness.fake_room_connection->emitConnected();
-  harness.fake_room_connection->emitRemoteTrackPublished("operator-1", "PA_op", protocol::kTalkbackTrackName);
+  harness.fake_room_connection->emitRemoteTrackPublished("publisher-1", "PA_out", protocol::kAudioOutTrackName);
   ASSERT_EQ(harness.state->subscribe_remote_track_calls.size(), 1U);
 
   // A full restart unpublishes the track and disconnects its participant while
   // still Connected, then re-announces it while Reconnecting.
-  auto track = harness.fake_room_connection->makeSyntheticRemoteTrack(livekit::TrackKind::KIND_AUDIO, "PA_op");
-  harness.fake_room_connection->emitRemoteTrackUnsubscribed("operator-1", track, protocol::kTalkbackTrackName);
-  harness.fake_room_connection->emitRemoteTrackUnpublished("operator-1", "PA_op", protocol::kTalkbackTrackName);
-  harness.fake_room_connection->emitParticipantDisconnected("operator-1");
+  auto track = harness.fake_room_connection->makeSyntheticRemoteTrack(livekit::TrackKind::KIND_AUDIO, "PA_out");
+  harness.fake_room_connection->emitRemoteTrackUnsubscribed("publisher-1", track, protocol::kAudioOutTrackName);
+  harness.fake_room_connection->emitRemoteTrackUnpublished("publisher-1", "PA_out", protocol::kAudioOutTrackName);
+  harness.fake_room_connection->emitParticipantDisconnected("publisher-1");
   harness.fake_room_connection->emitReconnecting();
-  harness.fake_room_connection->emitRemoteTrackPublished("operator-1", "PA_op", protocol::kTalkbackTrackName);
+  harness.fake_room_connection->emitRemoteTrackPublished("publisher-1", "PA_out", protocol::kAudioOutTrackName);
   EXPECT_EQ(harness.state->subscribe_remote_track_calls.size(), 1U);
 
   // Reconnected subscribes the re-announced track from the snapshot.
   harness.fake_room_connection->emitReconnected();
   ASSERT_EQ(harness.state->subscribe_remote_track_calls.size(), 2U);
   EXPECT_EQ(
-    harness.state->subscribe_remote_track_calls.back(), (std::pair<std::string, std::string>{"operator-1", "PA_op"}));
+    harness.state->subscribe_remote_track_calls.back(), (std::pair<std::string, std::string>{"publisher-1", "PA_out"}));
 }
 
-TEST_F(RuntimeTest, TalkbackWiresSubscriptionFailuresOnlyWhenConfigured)
+TEST_F(RuntimeTest, AudioOutputWiresSubscriptionFailuresOnlyWhenConfigured)
 {
   auto options = makeStaticTokenOptions();
-  options.append_parameter_override("audio.sink", "fakesink sync=false");
-  auto talkback_harness = makeRuntimeHarness(options);
-  EXPECT_TRUE(static_cast<bool>(talkback_harness.state->callbacks.on_remote_track_subscription_failed));
+  options.append_parameter_override("audio.out.sink", "fakesink sync=false");
+  auto audio_output_harness = makeRuntimeHarness(options);
+  EXPECT_TRUE(static_cast<bool>(audio_output_harness.state->callbacks.on_remote_track_subscription_failed));
 
   auto plain_harness = makeRuntimeHarness(makeStaticTokenOptions());
   EXPECT_FALSE(static_cast<bool>(plain_harness.state->callbacks.on_remote_track_subscription_failed));
 }
 
-TEST_F(RuntimeTest, TalkbackEnabledShutdownUnregistersRpcsBeforeRoomStop)
+TEST_F(RuntimeTest, AudioOutputEnabledShutdownUnregistersRpcsBeforeRoomStop)
 {
   auto options = makeStaticTokenOptions();
-  options.append_parameter_override("audio.sink", "fakesink sync=false");
+  options.append_parameter_override("audio.out.sink", "fakesink sync=false");
   auto harness = makeRuntimeHarness(options);
 
   harness.runtime.reset();

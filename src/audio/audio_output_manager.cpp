@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "audio/talkback_manager.hpp"
+#include "audio/audio_output_manager.hpp"
 
 #include <condition_variable>
 #include <exception>
@@ -33,17 +33,17 @@ namespace livekit_ros2_bridge::audio
 namespace
 {
 
-const auto kLogger = rclcpp::get_logger("livekit_ros2_bridge.talkback");
+const auto kLogger = rclcpp::get_logger("livekit_ros2_bridge.audio_out");
 // Ring-buffer capacity for AudioStream — newest-wins so a stalled reader drains
-// stale audio instead of lagging unboundedly on a lossy operator link.
+// stale audio instead of lagging unboundedly on a lossy link.
 constexpr std::size_t kStreamCapacity = 50;
 
-// Thin adapter from the test-facing TalkbackAudioStream seam onto the SDK's
+// Thin adapter from the test-facing AudioOutputStream seam onto the SDK's
 // livekit::AudioStream, the production stream the reader consumes.
-class LiveKitTalkbackAudioStream final : public TalkbackAudioStream
+class LiveKitAudioOutputStream final : public AudioOutputStream
 {
 public:
-  explicit LiveKitTalkbackAudioStream(std::shared_ptr<livekit::AudioStream> stream)
+  explicit LiveKitAudioOutputStream(std::shared_ptr<livekit::AudioStream> stream)
   : stream_(std::move(stream))
   {}
 
@@ -61,28 +61,31 @@ private:
   std::shared_ptr<livekit::AudioStream> stream_;
 };
 
-std::shared_ptr<TalkbackAudioStream> makeLiveKitTalkbackStream(
+std::shared_ptr<AudioOutputStream> makeLiveKitAudioOutputStream(
   const std::shared_ptr<livekit::Track> & track, std::size_t capacity)
 {
   livekit::AudioStream::Options options;
   options.capacity = capacity;
-  return std::make_shared<LiveKitTalkbackAudioStream>(livekit::AudioStream::fromTrack(track, options));
+  return std::make_shared<LiveKitAudioOutputStream>(livekit::AudioStream::fromTrack(track, options));
 }
 
 }  // namespace
 
-TalkbackManager::TalkbackManager(RoomConnection & room_connection, std::string sink_fragment)
-: TalkbackManager(room_connection, std::make_shared<TalkbackSink>(std::move(sink_fragment)), makeLiveKitTalkbackStream)
+AudioOutputManager::AudioOutputManager(RoomConnection & room_connection, std::string sink_fragment)
+: AudioOutputManager(
+    room_connection, std::make_shared<AudioOutputSink>(std::move(sink_fragment)), makeLiveKitAudioOutputStream)
 {}
 
-TalkbackManager::TalkbackManager(
-  RoomConnection & room_connection, std::shared_ptr<TalkbackSinkInterface> sink, TalkbackStreamFactory stream_factory)
+AudioOutputManager::AudioOutputManager(
+  RoomConnection & room_connection,
+  std::shared_ptr<AudioOutputSinkInterface> sink,
+  AudioOutputStreamFactory stream_factory)
 : room_connection_(room_connection)
 , sink_(std::move(sink))
 , stream_factory_(std::move(stream_factory))
 {}
 
-TalkbackManager::~TalkbackManager()
+AudioOutputManager::~AudioOutputManager()
 {
   std::map<std::string, std::shared_ptr<Reader>> readers;
   {
@@ -116,19 +119,19 @@ TalkbackManager::~TalkbackManager()
   reader_exited_.wait(wait_lock, [this]() { return live_readers_.load(std::memory_order_acquire) == 0; });
 }
 
-void TalkbackManager::onRemoteTrackPublished(const RemoteTrackEvent & event)
+void AudioOutputManager::onRemoteTrackPublished(const RemoteTrackEvent & event)
 {
   std::lock_guard<std::mutex> event_lock(event_mutex_);
   if (is_shutdown_.load(std::memory_order_acquire)) {
     return;
   }
 
-  if (event.track_name != protocol::kTalkbackTrackName) {
+  if (event.track_name != protocol::kAudioOutTrackName) {
     return;
   }
 
   // The publisher's identity reaches logs here; the bridge performs no
-  // identity checks on the Talkback Track. Logged only for the operator-named
+  // identity checks on the audio output track. Logged only for that
   // track so busy rooms do not emit an info line per foreign publication.
   LogEvent(kLogger, "remote_track_published")
     .fieldOr("participant_identity", event.participant_identity)
@@ -136,25 +139,25 @@ void TalkbackManager::onRemoteTrackPublished(const RemoteTrackEvent & event)
     .fieldQuoted("track_name", event.track_name)
     .info();
 
-  // A second live operator track still gets subscribed (it is the named
+  // A second live output track still gets subscribed (it is the named
   // track); its frames are then logged once and dropped by the single active
-  // sink, so it can never steal the speaker from the active operator.
+  // sink, so it can never steal the sink from the active track.
   if (!room_connection_.subscribeRemoteTrack(event.participant_identity, event.track_sid)) {
-    LogEvent(kLogger, "talkback_subscribe_failed")
+    LogEvent(kLogger, "audio_out_subscribe_failed")
       .fieldOr("participant_identity", event.participant_identity)
       .fieldOr("track_sid", event.track_sid)
       .warn();
   }
 }
 
-void TalkbackManager::onRemoteTrackUnpublished(const RemoteTrackEvent & event)
+void AudioOutputManager::onRemoteTrackUnpublished(const RemoteTrackEvent & event)
 {
   std::lock_guard<std::mutex> event_lock(event_mutex_);
   if (is_shutdown_.load(std::memory_order_acquire)) {
     return;
   }
 
-  if (event.track_name != protocol::kTalkbackTrackName) {
+  if (event.track_name != protocol::kAudioOutTrackName) {
     return;
   }
 
@@ -167,7 +170,7 @@ void TalkbackManager::onRemoteTrackUnpublished(const RemoteTrackEvent & event)
   stopReader(event.track_sid, "track_unpublished");
 }
 
-void TalkbackManager::onRemoteTrackSubscribed(const RemoteTrackEvent & event)
+void AudioOutputManager::onRemoteTrackSubscribed(const RemoteTrackEvent & event)
 {
   std::lock_guard<std::mutex> event_lock(event_mutex_);
   if (is_shutdown_.load(std::memory_order_acquire)) {
@@ -175,38 +178,38 @@ void TalkbackManager::onRemoteTrackSubscribed(const RemoteTrackEvent & event)
   }
   if (
     event.track == nullptr || event.track_kind != livekit::TrackKind::KIND_AUDIO ||
-    event.track_name != protocol::kTalkbackTrackName)
+    event.track_name != protocol::kAudioOutTrackName)
   {
-    LogEvent(kLogger, "talkback_track_ignored")
-      .field("reason", "not_operator_audio")
+    LogEvent(kLogger, "audio_out_track_ignored")
+      .field("reason", "not_audio_out")
       .fieldOr("track_sid", event.track_sid)
       .fieldQuoted("track_name", event.track_name)
       .debug();
     return;
   }
 
-  subscribeOperatorTrack(event);
+  subscribeOutputTrack(event);
 }
 
-void TalkbackManager::onRemoteTrackUnsubscribed(const RemoteTrackEvent & event)
+void AudioOutputManager::onRemoteTrackUnsubscribed(const RemoteTrackEvent & event)
 {
   std::lock_guard<std::mutex> event_lock(event_mutex_);
   if (is_shutdown_.load(std::memory_order_acquire)) {
     return;
   }
-  if (event.track_name == protocol::kTalkbackTrackName) {
+  if (event.track_name == protocol::kAudioOutTrackName) {
     stopReader(event.track_sid, "track_unsubscribed");
   }
 }
 
-void TalkbackManager::onRemoteTrackSubscriptionFailed(const RemoteTrackSubscriptionFailedEvent & event)
+void AudioOutputManager::onRemoteTrackSubscriptionFailed(const RemoteTrackSubscriptionFailedEvent & event)
 {
   std::lock_guard<std::mutex> event_lock(event_mutex_);
   if (is_shutdown_.load(std::memory_order_acquire)) {
     return;
   }
 
-  LogEvent(kLogger, "talkback_subscription_failed")
+  LogEvent(kLogger, "audio_out_subscription_failed")
     .fieldOr("participant_identity", event.participant_identity)
     .fieldOr("track_sid", event.track_sid)
     .fieldOr("error", event.error)
@@ -215,7 +218,7 @@ void TalkbackManager::onRemoteTrackSubscriptionFailed(const RemoteTrackSubscript
   stopReader(event.track_sid, "subscription_failed");
 }
 
-void TalkbackManager::onParticipantDisconnected(const livekit::ParticipantDisconnectedEvent & event)
+void AudioOutputManager::onParticipantDisconnected(const livekit::ParticipantDisconnectedEvent & event)
 {
   std::lock_guard<std::mutex> event_lock(event_mutex_);
   if (is_shutdown_.load(std::memory_order_acquire)) {
@@ -243,7 +246,7 @@ void TalkbackManager::onParticipantDisconnected(const livekit::ParticipantDiscon
   }
 }
 
-void TalkbackManager::onConnected()
+void AudioOutputManager::onConnected()
 {
   std::lock_guard<std::mutex> event_lock(event_mutex_);
   if (is_shutdown_.load(std::memory_order_acquire)) {
@@ -257,7 +260,7 @@ void TalkbackManager::onConnected()
   snapshotSubscribe();
 }
 
-void TalkbackManager::subscribeOperatorTrack(const RemoteTrackEvent & event)
+void AudioOutputManager::subscribeOutputTrack(const RemoteTrackEvent & event)
 {
   if (event.track == nullptr || event.track_sid.empty()) {
     return;
@@ -270,11 +273,11 @@ void TalkbackManager::subscribeOperatorTrack(const RemoteTrackEvent & event)
     }
   }
 
-  std::shared_ptr<TalkbackAudioStream> stream;
+  std::shared_ptr<AudioOutputStream> stream;
   try {
     stream = stream_factory_(event.track, kStreamCapacity);
   } catch (...) {
-    LogEvent(kLogger, "talkback_stream_create_failed")
+    LogEvent(kLogger, "audio_out_stream_create_failed")
       .fieldOr("track_sid", event.track_sid)
       .fieldException("error", std::current_exception())
       .warn();
@@ -296,7 +299,7 @@ void TalkbackManager::subscribeOperatorTrack(const RemoteTrackEvent & event)
 
   const std::uint64_t reader_id = last_reader_id_.fetch_add(1, std::memory_order_relaxed) + 1;
 
-  LogEvent(kLogger, "talkback_reader_started")
+  LogEvent(kLogger, "audio_out_reader_started")
     .field("reader_id", reader_id)
     .fieldOr("track_sid", event.track_sid)
     .fieldQuoted("track_name", event.track_name)
@@ -334,7 +337,7 @@ void TalkbackManager::subscribeOperatorTrack(const RemoteTrackEvent & event)
           stream->close();
         }
         sink->unbind(reader_id);
-        LogEvent(kLogger, "talkback_reader_stopped")
+        LogEvent(kLogger, "audio_out_reader_stopped")
           .field("reader_id", reader_id)
           .fieldOr("track_sid", track_sid)
           .field("frames_received", total_frames)
@@ -366,7 +369,7 @@ void TalkbackManager::subscribeOperatorTrack(const RemoteTrackEvent & event)
           try {
             got_frame = stream->read(frame_event);
           } catch (...) {
-            LogEvent(kLogger, "talkback_read_failed")
+            LogEvent(kLogger, "audio_out_read_failed")
               .field("reader_id", reader_id)
               .fieldOr("track_sid", track_sid)
               .fieldException("error", std::current_exception())
@@ -397,7 +400,7 @@ void TalkbackManager::subscribeOperatorTrack(const RemoteTrackEvent & event)
 
           if (!first_frame_logged) {
             first_frame_logged = true;
-            LogEvent(kLogger, "talkback_first_frame")
+            LogEvent(kLogger, "audio_out_first_frame")
               .field("reader_id", reader_id)
               .fieldOr("track_sid", track_sid)
               .field("sample_rate", frame.sampleRate())
@@ -413,7 +416,7 @@ void TalkbackManager::subscribeOperatorTrack(const RemoteTrackEvent & event)
           ++total_frames;
         }
       } catch (...) {
-        LogEvent(kLogger, "talkback_reader_failed")
+        LogEvent(kLogger, "audio_out_reader_failed")
           .field("reader_id", reader_id)
           .fieldOr("track_sid", track_sid)
           .fieldException("error", std::current_exception())
@@ -433,7 +436,7 @@ void TalkbackManager::subscribeOperatorTrack(const RemoteTrackEvent & event)
       std::lock_guard<std::mutex> lock(mutex_);
       readers_.erase(event.track_sid);
     }
-    LogEvent(kLogger, "talkback_reader_start_failed")
+    LogEvent(kLogger, "audio_out_reader_start_failed")
       .fieldOr("track_sid", event.track_sid)
       .fieldException("error", std::current_exception())
       .warn();
@@ -441,7 +444,7 @@ void TalkbackManager::subscribeOperatorTrack(const RemoteTrackEvent & event)
   }
 }
 
-void TalkbackManager::stopReader(const std::string & track_sid, const char * reason)
+void AudioOutputManager::stopReader(const std::string & track_sid, const char * reason)
 {
   std::shared_ptr<Reader> reader;
   {
@@ -458,14 +461,14 @@ void TalkbackManager::stopReader(const std::string & track_sid, const char * rea
   if (reader->stream != nullptr) {
     reader->stream->close();
   }
-  LogEvent(kLogger, "talkback_reader_stopping").fieldOr("track_sid", track_sid).field("reason", reason).info();
+  LogEvent(kLogger, "audio_out_reader_stopping").fieldOr("track_sid", track_sid).field("reason", reason).info();
 }
 
-void TalkbackManager::snapshotSubscribe()
+void AudioOutputManager::snapshotSubscribe()
 {
   const auto snapshot = room_connection_.remoteTrackSnapshot();
   for (const auto & entry : snapshot) {
-    if (entry.track_name == protocol::kTalkbackTrackName && !entry.subscribed) {
+    if (entry.track_name == protocol::kAudioOutTrackName && !entry.subscribed) {
       (void)room_connection_.subscribeRemoteTrack(entry.participant_identity, entry.track_sid);
     }
   }
