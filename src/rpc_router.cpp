@@ -333,7 +333,7 @@ std::optional<std::string> RpcRouter::capability(const livekit::RpcInvocationDat
   // Features are configuration-derived: present if and only if configured.
   nlohmann::json features = nlohmann::json::object();
   if (audio_output_enabled_) {
-    features["talkback"] = true;
+    features["audio"]["out"]["track_name"] = protocol::kAudioOutTrackName;
   }
   const nlohmann::json response = {
     {"features", features},

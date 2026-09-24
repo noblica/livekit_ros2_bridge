@@ -783,10 +783,9 @@ TEST_F(RuntimeTest, CapabilityAdvertisesAudioOutputOnlyWithSinkConfigured)
   invocation.response_timeout_sec = 0.0;
   const auto response = capability_entry->second(invocation);
   ASSERT_TRUE(response.has_value());
-  const auto body = nlohmann::json::parse(*response);
-  ASSERT_TRUE(body["features"].contains("talkback"));
-  EXPECT_EQ(body["features"]["talkback"], true);
-  EXPECT_EQ(body["v"], protocol::kProtocolVersion);
+  EXPECT_EQ(
+    nlohmann::json::parse(*response),
+    nlohmann::json::parse(R"({"v":2,"features":{"audio":{"out":{"track_name":"lkros.audio.out"}}}})"));
 
   configured_harness.runtime.reset();
 
@@ -796,8 +795,7 @@ TEST_F(RuntimeTest, CapabilityAdvertisesAudioOutputOnlyWithSinkConfigured)
   ASSERT_TRUE(default_capability_entry != default_harness.state->rpc_handlers.end());
   const auto default_response = default_capability_entry->second(invocation);
   ASSERT_TRUE(default_response.has_value());
-  const auto default_body = nlohmann::json::parse(*default_response);
-  EXPECT_FALSE(default_body["features"].contains("talkback"));
+  EXPECT_EQ(nlohmann::json::parse(*default_response), nlohmann::json::parse(R"({"v":2,"features":{}})"));
 }
 
 TEST_F(RuntimeTest, AudioOutputSubscribesOnlyTheOutputTrack)

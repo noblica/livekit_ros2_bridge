@@ -281,7 +281,7 @@ TEST_F(RpcRouterTest, CapabilityRpcAdvertisesAudioOutputOnlyWhenConfigured)
   RpcRouterHarness harness(makeServicePolicy(), true);
 
   const auto response = harness.invokeRpc(protocol::kCapabilityMethod, makeRpcInvocation("", R"({})"));
-  expectCapabilityBody(response, nlohmann::json{{"talkback", true}});
+  expectCapabilityBody(response, nlohmann::json::parse(R"({"audio":{"out":{"track_name":"lkros.audio.out"}}})"));
 }
 
 TEST_F(RpcRouterTest, ServiceCallRpcMapsInvalidPayloadToInvalidRequest)

@@ -226,7 +226,7 @@ Lookup notes:
 Behavior notes:
 
 - audio output is disabled by default; the feature never half-works on robots without an output device
-- a non-empty `audio.out.sink` enables the feature and advertises `talkback: true` through the [`lkros.capability`](protocol.md#rpc-lkroscapability) RPC, so client UIs offer audio output only where it can work
+- a non-empty `audio.out.sink` enables the feature and advertises `audio.out`, with the `track_name` to publish, through the [`lkros.capability`](protocol.md#rpc-lkroscapability) RPC, so client UIs offer audio output only where it can work
 - the bridge connects with auto-subscribe disabled and subscribes only to the fixed-name audio output track (`lkros.audio.out`); other published media is never received
 - the bridge performs no identity checks on the audio output publisher; who may publish is enforced by the application layer
 - the playback pipeline is `appsrc ! queue max-size-buffers=0 max-size-bytes=0 max-size-time=2000000000 ! audioconvert ! audioresample ! <audio.out.sink>`; the queue is intentionally lossless (bounded only at 2 s) rather than leaky, because dropping audio here would remove sound that is about to be played; the fragment is inserted verbatim after those bridge-owned stages
@@ -394,7 +394,7 @@ Set `audio.out.sink` when the bridge should play client-published audio through 
 
 2. Expect the feature to be discoverable.
 
-   - `lkros.capability` answers `{"v": 2, "features": {"talkback": true}}`
+   - `lkros.capability` answers `{"v": 2, "features": {"audio": {"out": {"track_name": "lkros.audio.out"}}}}`
    - with `audio.out.sink` empty (or absent), `features` is `{}` and no track is ever subscribed
 
 3. Expect the client side to be self-enforcing.

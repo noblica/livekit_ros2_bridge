@@ -473,7 +473,7 @@ The audio output track carries live audio from a client into the bridge, which p
 
 ### Name
 
-`lkros.audio.out` is fixed. It carries no per-identity suffix — client identities churn on every page reload, and the name describes the track's role: audio the bridge plays out.
+`lkros.audio.out` is fixed, and bridges advertise it as `features.audio.out.track_name` in [`lkros.capability`](#rpc-lkroscapability). It carries no per-identity suffix — client identities churn on every page reload, and the name describes the track's role: audio the bridge plays out.
 
 ### Requirements
 
@@ -492,7 +492,7 @@ Frames arrive at 10 ms cadence, 48 kHz mono int16 PCM. The bridge reads the firs
 
 ### Notes
 
-- A client offers audio output only when [`lkros.capability`](#rpc-lkroscapability) advertises `talkback`; publishing the track without that advertisement has no effect on unconfigured bridges.
+- A client offers audio output only when [`lkros.capability`](#rpc-lkroscapability) advertises `audio.out`; publishing the track without that advertisement has no effect on unconfigured bridges.
 - The bridge tolerates lossy links by playing the newest audio: a stalled upstream never queues unboundedly.
 
 ## Byte Stream: `lkros.echo.once`
@@ -822,7 +822,11 @@ A bridge with an audio output sink configured:
 {
   "v": 2,
   "features": {
-    "talkback": true
+    "audio": {
+      "out": {
+        "track_name": "lkros.audio.out"
+      }
+    }
   }
 }
 ```
@@ -837,10 +841,12 @@ A bridge with an audio output sink configured:
 
 - A successful response MUST be a JSON object with a `features` field.
 - `v` MUST be the protocol version, currently `2`.
-- `features` MUST be a JSON object keyed by feature name with boolean values, all of which are `true` in this protocol version. Presence in the object advertises the feature; a feature that is not available on the bridge MUST be absent from the object rather than advertised with `false`.
+- `features` MUST be a JSON object keyed by feature name. Presence of a key advertises the feature, and its value MUST be a JSON object carrying the feature's details (empty when it has none). Related features MAY be grouped under one key, as `audio.out` is under `audio`; a group with no available feature MUST be absent.
+- A feature that is not available on the bridge MUST be absent from the object rather than advertised with `false` or `null`.
 - A feature MUST be advertised if and only if its availability is configuration-derived; a feature absent from `features` means "not available on this bridge".
-- `talkback` MUST be advertised if and only if the bridge has an output sink configured (`audio.out.sink`); an advertised `talkback` means the bridge subscribes to the audio output track (see [Remote Media Track: `lkros.audio.out`](#remote-media-track-lkrosaudioout-audio-output)) and plays it.
-- The schema is additive: new feature names MAY appear in later versions, and clients MUST ignore unknown feature names.
+- `audio.out` MUST be advertised if and only if the bridge has an output sink configured (`audio.out.sink`); an advertised `audio.out` means the bridge subscribes to the audio output track (see [Remote Media Track: `lkros.audio.out`](#remote-media-track-lkrosaudioout-audio-output)) and plays it.
+- `audio.out.track_name` MUST be the name of that track. A client MUST publish under the advertised `track_name`.
+- The schema is additive: new feature names and new fields MAY appear in later versions, and clients MUST ignore unknown feature names and unknown fields.
 - A bridge that predates this RPC answers with the LiveKit SDK's built-in unsupported-method error (`1400`). A client MUST treat that error as "this bridge does not support capability discovery" and MUST NOT interpret it as an empty feature set; the error and the empty `features` object are the two states of the discovery contract.
 
 ### Notes
@@ -921,10 +927,10 @@ A common non-ROS audio path:
 
 ### Audio Output Flow
 
-A common audio output path (only on bridges advertising `talkback`):
+A common audio output path (only on bridges advertising `audio.out`):
 
-1. Call `lkros.capability` on join; offer audio output only when `features.talkback` is `true`.
-2. When output starts, publish one audio track named `lkros.audio.out` (48 kHz mono).
+1. Call `lkros.capability` on join; offer audio output only when `features.audio.out` is present, and read its `track_name`.
+2. When output starts, publish one audio track named with the advertised `track_name` (48 kHz mono).
 3. Keep publishing while output is live; a mute is silence-through, and no further signaling is needed.
 4. On lease loss, unpublish the track so the next lease holder can claim the bridge's sink.
 5. Regaining the lease republishes when output next starts; the bridge rebinds its sink to the track's first frame.
